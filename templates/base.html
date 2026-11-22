@@ -5,6 +5,65 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{% block title %}پایشگر{% endblock %}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<script>
+(function() {
+  const serverToken = {{ auth_token|tojson }};
+  if (serverToken) {
+    sessionStorage.setItem('payeshgar_at', serverToken);
+  }
+  // Clean _at query param from address bar if present
+  try {
+    const u = new URL(window.location.href);
+    if (u.searchParams.has('_at')) {
+      sessionStorage.setItem('payeshgar_at', u.searchParams.get('_at'));
+      u.searchParams.delete('_at');
+      window.history.replaceState({}, '', u.pathname + (u.search ? u.search : '') + u.hash);
+    }
+  } catch (e) {}
+
+  // Automatically attach X-Auth-Token header to all same-origin fetch requests
+  const origFetch = window.fetch.bind(window);
+  window.fetch = function(input, init) {
+    const tok = sessionStorage.getItem('payeshgar_at');
+    if (tok) {
+      init = init || {};
+      const headers = new Headers(init.headers || {});
+      if (!headers.has('X-Auth-Token')) {
+        headers.set('X-Auth-Token', tok);
+      }
+      init.headers = headers;
+    }
+    return origFetch(input, init);
+  };
+
+  window.payeshgarNav = function(path) {
+    const tok = sessionStorage.getItem('payeshgar_at');
+    if (tok && path.startsWith('/') && !path.startsWith('/logout')) {
+      const sep = path.includes('?') ? '&' : '?';
+      window.location.href = path + sep + '_at=' + encodeURIComponent(tok);
+    } else {
+      window.location.href = path;
+    }
+  };
+
+  document.addEventListener('click', function(e) {
+    const a = e.target.closest('a[href]');
+    if (!a) return;
+    const href = a.getAttribute('href') || '';
+    if (href === '/logout') {
+      sessionStorage.removeItem('payeshgar_at');
+      return;
+    }
+    if (href.startsWith('/') && !href.startsWith('//') && !a.hasAttribute('target')) {
+      const tok = sessionStorage.getItem('payeshgar_at');
+      if (tok && !href.includes('_at=')) {
+        e.preventDefault();
+        window.payeshgarNav(href);
+      }
+    }
+  });
+})();
+</script>
 </head>
 <body>
 <header class="header">
@@ -14,18 +73,22 @@
       <span>پایشگر<small>Payeshgar • سامانه خزش و پایش</small></span>
     </a>
     <nav class="nav">
-      <a href="{{ url_for('landing') }}" class="{% if request.path == '/' %}active{% endif %}">🏠 صفحه اصلی</a>
       {% if user %}
+        <a href="{{ url_for('landing') }}" class="{% if request.path == '/' %}active{% endif %}">🏠 داشبورد</a>
+        {% if 'web.view' in perms %}
         <a href="{{ url_for('web_page') }}" class="{% if request.path == '/web' %}active{% endif %}">🌐 وب</a>
+        {% endif %}
+        {% if 'telegram.view' in perms %}
         <a href="{{ url_for('telegram_page') }}" class="{% if request.path == '/telegram' %}active{% endif %}">✈️ تلگرام</a>
+        {% endif %}
+        {% if 'x.view' in perms %}
         <a href="{{ url_for('x_page') }}" class="{% if request.path == '/x' %}active{% endif %}">𝕏 ایکس</a>
+        {% endif %}
         {% if 'admin.access' in perms %}
-        <a href="{{ url_for('admin_page') }}" class="{% if request.path == '/admin' %}active{% endif %}">⚙️ مدیریت</a>
+        <a href="{{ url_for('admin_page') }}" class="{% if request.path == '/admin' %}active{% endif %}">⚙️ مدیریت ACL</a>
         {% endif %}
         <span class="user-chip"><span class="avatar">{{ user.username[0]|upper }}</span> {{ user.username }}</span>
         <a href="{{ url_for('logout') }}">🚪 خروج</a>
-      {% else %}
-        <a href="{{ url_for('login') }}">🔑 ورود</a>
       {% endif %}
     </nav>
   </div>

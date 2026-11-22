@@ -1,34 +1,69 @@
-{% extends "base.html" %}
-{% block title %}ورود | پایشگر{% endblock %}
-{% block content %}
-<div class="login-wrap">
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ورود به سامانه | پایشگر</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="login-wrap" style="min-height:100vh">
   <div class="login-card">
     <div class="logo-icon">📡</div>
-    <h2 style="text-align:center;font-size:22px;font-weight:900">ورود به پایشگر</h2>
-    <p style="text-align:center;color:var(--muted);font-size:13px;margin:8px 0 22px">نام کاربری، رمز عبور و کپچا را وارد کنید</p>
+    <h2 style="text-align:center;font-size:24px;font-weight:900">پایشگر</h2>
+    <p style="text-align:center;color:var(--muted);font-size:13px;margin:6px 0 22px">سامانه یکپارچه خزش و پایش — لطفاً وارد حساب کاربری خود شوید</p>
 
-    <form method="POST" action="{{ url_for('login') }}{% if request.args.get('next') %}?next={{ request.args.get('next') }}{% endif %}">
-      <input type="hidden" name="next" value="{{ request.args.get('next','') }}">
+    {% if error %}
+      <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+        <div class="alert alert-{{ 'error' if cat == 'error' else 'success' }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <form method="POST" action="{{ url_for('login') }}">
+      <input type="hidden" name="next" value="{{ request.args.get('next', request.form.get('next', '')) }}">
+      <input type="hidden" name="captcha_token" id="captchaToken" value="{{ captcha_token }}">
+
       <div class="field">
         <label>نام کاربری</label>
-        <input type="text" name="username" required autocomplete="username" placeholder="مثلاً admin">
+        <input type="text" name="username" value="{{ username_val or '' }}" required autofocus autocomplete="username" placeholder="نام کاربری را وارد کنید" dir="ltr" style="text-align:left">
       </div>
+
       <div class="field">
         <label>رمز عبور</label>
-        <input type="password" name="password" required autocomplete="current-password" placeholder="••••••••">
+        <input type="password" name="password" required autocomplete="current-password" placeholder="••••••••" dir="ltr" style="text-align:left">
       </div>
+
       <div class="field">
-        <label>کپچا — حاصل عبارت زیر را بنویسید</label>
-        <div class="captcha-box">
-          <span class="captcha-q">{{ captcha_q }}</span>
-          <span style="color:var(--muted)">=</span>
-          <input type="text" name="captcha" required inputmode="numeric" placeholder="؟" style="flex:1">
-          <button type="button" class="btn btn-ghost btn-sm" onclick="location.reload()" title="کپچای جدید">🔄</button>
+        <label>کد امنیتی (کپچا) — ۴ رقم تصویر را وارد کنید</label>
+        <div class="captcha-box" style="direction:ltr;justify-content:space-between">
+          <img id="captchaImg" src="{{ captcha_svg }}" alt="کد امنیتی" style="height:48px;width:150px;border-radius:8px;border:1px solid var(--border);flex-shrink:0;cursor:pointer" onclick="refreshCaptcha()" title="کلیک برای تغییر کد">
+          <input type="text" name="captcha" id="captchaInput" required inputmode="numeric" maxlength="6" autocomplete="off" placeholder="کد ۴ رقمی" dir="ltr" style="flex:1;text-align:center;font-size:18px;font-weight:800;letter-spacing:4px">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="refreshCaptcha()" title="دریافت کد جدید">🔄</button>
         </div>
       </div>
-      <button type="submit" class="btn btn-primary btn-block">ورود 🔑</button>
+
+      <button type="submit" class="btn btn-primary btn-block" style="margin-top:6px">🔑 ورود به سامانه</button>
     </form>
-    <p style="text-align:center;margin-top:16px;font-size:12px;color:var(--muted)">بازگشت به <a href="{{ url_for('landing') }}">صفحه اصلی</a></p>
   </div>
 </div>
-{% endblock %}
+
+<script>
+sessionStorage.removeItem('payeshgar_at');
+async function refreshCaptcha() {
+  try {
+    const res = await fetch('/api/captcha', { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    document.getElementById('captchaImg').src = data.svg;
+    document.getElementById('captchaToken').value = data.token;
+    const inp = document.getElementById('captchaInput');
+    inp.value = '';
+    inp.focus();
+  } catch (e) {}
+}
+</script>
+</body>
+</html>

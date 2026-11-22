@@ -6,11 +6,22 @@
   <p class="sub">تعریف و مدیریت کاربران، نقش‌ها و دسترسی‌های جزئی (از سطح مشاهده کلی تا اکشن‌های خزش و حذف). پایگاه داده کاربران (<code>users.db</code>) کاملاً از پایگاه داده فضای کاری (<code>workspace.db</code>) جداست.</p>
 </div>
 
+{% set can_users = 'users.view' in perms %}
+{% set can_roles = 'roles.view' in perms %}
+
+{% if not can_users and not can_roles %}
+<div class="alert alert-info">شما به پنل مدیریت دسترسی دارید اما دسترسی مشاهده لیست کاربران یا نقش‌ها برایتان فعال نشده است.</div>
+{% else %}
 <div class="tabs">
+  {% if can_users %}
   <button class="tab active" id="tabUsersBtn" onclick="switchTab('users')">👥 مدیریت کاربران</button>
-  <button class="tab" id="tabRolesBtn" onclick="switchTab('roles')">🛡️ مدیریت نقش‌ها و دسترسی‌ها</button>
+  {% endif %}
+  {% if can_roles %}
+  <button class="tab {% if not can_users %}active{% endif %}" id="tabRolesBtn" onclick="switchTab('roles')">🛡️ مدیریت نقش‌ها و دسترسی‌ها</button>
+  {% endif %}
 </div>
 
+{% if can_users %}
 <!-- USERS SECTION -->
 <div id="secUsers">
   <div class="panel">
@@ -37,9 +48,11 @@
     </div>
   </div>
 </div>
+{% endif %}
 
+{% if can_roles %}
 <!-- ROLES SECTION -->
-<div id="secRoles" style="display:none">
+<div id="secRoles" style="{% if can_users %}display:none{% endif %}">
   <div class="panel">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
       <h2 style="margin:0">🛡️ لیست نقش‌ها</h2>
@@ -64,6 +77,8 @@
     </div>
   </div>
 </div>
+{% endif %}
+{% endif %}
 
 <!-- USER MODAL -->
 <div class="modal-overlay" id="userModal">
@@ -72,11 +87,11 @@
     <input type="hidden" id="editUserId">
     <div class="field" id="usernameFieldWrap">
       <label>نام کاربری</label>
-      <input type="text" id="uUsername" placeholder="username">
+      <input type="text" id="uUsername" placeholder="username" dir="ltr" style="text-align:left">
     </div>
     <div class="field">
       <label id="pwdLabel">رمز عبور</label>
-      <input type="password" id="uPassword" placeholder="••••••••">
+      <input type="password" id="uPassword" placeholder="••••••••" dir="ltr" style="text-align:left">
     </div>
     <div class="field" id="activeWrap" style="display:none">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
@@ -137,29 +152,39 @@ let allUsers = [];
 function esc(s){ return String(s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 function switchTab(t) {
-  document.getElementById('secUsers').style.display = t==='users' ? 'block' : 'none';
-  document.getElementById('secRoles').style.display = t==='roles' ? 'block' : 'none';
-  document.getElementById('tabUsersBtn').classList.toggle('active', t==='users');
-  document.getElementById('tabRolesBtn').classList.toggle('active', t==='roles');
+  const su = document.getElementById('secUsers');
+  const sr = document.getElementById('secRoles');
+  const bu = document.getElementById('tabUsersBtn');
+  const br = document.getElementById('tabRolesBtn');
+  if (su) su.style.display = t==='users' ? 'block' : 'none';
+  if (sr) sr.style.display = t==='roles' ? 'block' : 'none';
+  if (bu) bu.classList.toggle('active', t==='users');
+  if (br) br.classList.toggle('active', t==='roles');
 }
 
 function closeModal(id){ document.getElementById(id).classList.remove('open'); }
 
 async function loadAll() {
-  const [pRes, rRes, uRes] = await Promise.all([
-    fetch('/api/admin/permissions'),
-    fetch('/api/admin/roles'),
-    fetch('/api/admin/users')
-  ]);
+  const pRes = await fetch('/api/admin/permissions');
   if (pRes.ok) allPerms = await pRes.json();
-  if (rRes.ok) allRoles = await rRes.json();
-  if (uRes.ok) allUsers = await uRes.json();
-  renderUsers();
-  renderRoles();
+
+  if (myPerms.includes('roles.view') || myPerms.includes('users.view')) {
+    const rRes = await fetch('/api/admin/roles');
+    if (rRes.ok) allRoles = await rRes.json();
+  }
+  if (myPerms.includes('users.view')) {
+    const uRes = await fetch('/api/admin/users');
+    if (uRes.ok) allUsers = await uRes.json();
+    renderUsers();
+  }
+  if (myPerms.includes('roles.view')) {
+    renderRoles();
+  }
 }
 
 function renderUsers() {
   const tb = document.getElementById('usersBody');
+  if (!tb) return;
   const canEdit = myPerms.includes('users.edit');
   const canDel = myPerms.includes('users.delete');
   tb.innerHTML = allUsers.map(u => `
@@ -179,6 +204,7 @@ function renderUsers() {
 
 function renderRoles() {
   const tb = document.getElementById('rolesBody');
+  if (!tb) return;
   const canEdit = myPerms.includes('roles.edit');
   const canDel = myPerms.includes('roles.delete');
   tb.innerHTML = allRoles.map(r => `
@@ -247,6 +273,20 @@ async function deleteUser(uid) {
   if (!res.ok) alert(data.error || 'خطا'); else loadAll();
 }
 
+function onPermCheckboxChange(chk) {
+  if (!chk.checked) return;
+  const val = chk.value;
+  const parts = val.split('.');
+  if (parts.length === 2 && parts[1] !== 'view' && ['web','telegram','x','users','roles'].includes(parts[0])) {
+    const viewChk = document.querySelector(`.rPermChk[value="${parts[0]}.view"]`);
+    if (viewChk) viewChk.checked = true;
+  }
+  if (val.startsWith('users.') || val.startsWith('roles.')) {
+    const admChk = document.querySelector('.rPermChk[value="admin.access"]');
+    if (admChk) admChk.checked = true;
+  }
+}
+
 function openRoleModal(rid=null) {
   document.getElementById('roleModalErr').innerHTML = '';
   const r = rid ? allRoles.find(x=>x.id===rid) : null;
@@ -264,7 +304,7 @@ function openRoleModal(rid=null) {
     html += `<div class="perm-cat">📂 ${esc(cat)}</div><div class="perm-grid">`;
     html += list.map(p => `
       <label class="perm-item">
-        <input type="checkbox" class="rPermChk" value="${esc(p.name)}" ${selected.has(p.name)?'checked':''}>
+        <input type="checkbox" class="rPermChk" value="${esc(p.name)}" onchange="onPermCheckboxChange(this)" ${selected.has(p.name)?'checked':''}>
         <span><b>${esc(p.description)}</b><br><small class="mono" style="color:var(--muted)">${esc(p.name)}</small></span>
       </label>
     `).join('');

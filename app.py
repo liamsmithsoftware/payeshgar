@@ -10,15 +10,17 @@
 
 import os
 import re
+import base64
 import sqlite3
 import random
-import string
-from datetime import datetime
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlencode, parse_qsl, urlunparse
 
 import requests
 from bs4 import BeautifulSoup
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, g, flash
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
+from flask.sessions import SecureCookieSessionInterface
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # ---------- Config ----------
@@ -30,8 +32,39 @@ USERS_DB = os.path.join(INSTANCE_DIR, "users.db")
 WORKSPACE_DB = os.path.join(INSTANCE_DIR, "workspace.db")
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.secret_key = os.environ.get("SECRET_KEY", "payeshgar-secret-key-2026-change-in-prod")
 app.config["PERMANENT_SESSION_LIFETIME"] = 60 * 60 * 8  # 8 hours
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+
+captcha_signer = URLSafeTimedSerializer(app.secret_key, salt="payeshgar-captcha-v1")
+auth_signer = URLSafeTimedSerializer(app.secret_key, salt="payeshgar-auth-v1")
+
+
+class IframeAwareSessionInterface(SecureCookieSessionInterface):
+    """Automatically enables SameSite=None; Secure; Partitioned on HTTPS (for cross-site preview iframes)."""
+
+    def get_cookie_secure(self, app):
+        return True if request.is_secure else super().get_cookie_secure(app)
+
+    def get_cookie_samesite(self, app):
+        return "None" if request.is_secure else super().get_cookie_samesite(app)
+
+    def save_session(self, app, session, response):
+        super().save_session(app, session, response)
+        if request.is_secure:
+            cookies = response.headers.getlist("Set-Cookie")
+            if cookies:
+                response.headers.pop("Set-Cookie", None)
+                name = self.get_cookie_name(app)
+                for c in cookies:
+                    if c.startswith(f"{name}=") and "Partitioned" not in c:
+                        c += "; Partitioned"
+                    response.headers.add("Set-Cookie", c)
+
+
+app.session_interface = IframeAwareSessionInterface()
+
 
 # ---------- DB Helpers ----------
 def get_users_db():
@@ -40,10 +73,12 @@ def get_users_db():
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
+
 def get_workspace_db():
     conn = sqlite3.connect(WORKSPACE_DB)
     conn.row_factory = sqlite3.Row
     return conn
+
 
 # ---------- Permissions Definition ----------
 PERMISSIONS = [
@@ -72,6 +107,7 @@ PERMISSIONS = [
     # مدیریت
     ("admin.access", "دسترسی به پنل مدیریت", "مدیریت"),
 ]
+
 
 def init_dbs():
     # ---- users.db ----
@@ -112,41 +148,35 @@ def init_dbs():
         FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
     );
     """)
-    # seed permissions
     for name, desc, cat in PERMISSIONS:
         cur.execute("INSERT OR IGNORE INTO permissions (name, description, category) VALUES (?,?,?)", (name, desc, cat))
 
-    # seed roles
     cur.execute("INSERT OR IGNORE INTO roles (name, description) VALUES (?,?)", ("admin", "مدیر سیستم - دسترسی کامل"))
     cur.execute("INSERT OR IGNORE INTO roles (name, description) VALUES (?,?)", ("operator", "اپراتور - خزش و مشاهده"))
     cur.execute("INSERT OR IGNORE INTO roles (name, description) VALUES (?,?)", ("viewer", "مشاهده‌کننده - فقط مشاهده"))
 
-    # assign all perms to admin
     admin_role = cur.execute("SELECT id FROM roles WHERE name='admin'").fetchone()
     if admin_role:
         perms = cur.execute("SELECT id FROM permissions").fetchall()
         for p in perms:
             cur.execute("INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?,?)", (admin_role["id"], p["id"]))
 
-    # operator perms
     op_role = cur.execute("SELECT id FROM roles WHERE name='operator'").fetchone()
     if op_role:
-        op_perms = ["web.view","web.crawl","telegram.view","telegram.crawl","x.view","x.crawl"]
+        op_perms = ["web.view", "web.crawl", "telegram.view", "telegram.crawl", "x.view", "x.crawl"]
         for pn in op_perms:
             pr = cur.execute("SELECT id FROM permissions WHERE name=?", (pn,)).fetchone()
             if pr:
                 cur.execute("INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?,?)", (op_role["id"], pr["id"]))
 
-    # viewer perms
     vw_role = cur.execute("SELECT id FROM roles WHERE name='viewer'").fetchone()
     if vw_role:
-        vw_perms = ["web.view","telegram.view","x.view"]
+        vw_perms = ["web.view", "telegram.view", "x.view"]
         for pn in vw_perms:
             pr = cur.execute("SELECT id FROM permissions WHERE name=?", (pn,)).fetchone()
             if pr:
                 cur.execute("INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?,?)", (vw_role["id"], pr["id"]))
 
-    # seed admin user
     admin_user = cur.execute("SELECT id FROM users WHERE username='admin'").fetchone()
     if not admin_user:
         pwd = generate_password_hash("Admin@1234")
@@ -197,17 +227,59 @@ def init_dbs():
     conn.close()
     print("✅ Databases initialized: users.db + workspace.db")
 
+
 init_dbs()
 
-# ---------- Auth Helpers ----------
+
+# ---------- Digit Normalization ----------
+DIGIT_MAP = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+
+
+def normalize_digits(val: str) -> str:
+    return (val or "").translate(DIGIT_MAP).strip()
+
+
+# ---------- Auth & Token Helpers ----------
+def make_auth_token(user_id: int) -> str:
+    return auth_signer.dumps({"uid": user_id})
+
+
+def verify_auth_token(token: str):
+    if not token:
+        return None
+    try:
+        data = auth_signer.loads(token, max_age=60 * 60 * 8)
+        return data.get("uid")
+    except (BadSignature, SignatureExpired, Exception):
+        return None
+
+
+def append_token_to_url(target_url: str, token: str) -> str:
+    parsed = urlparse(target_url)
+    q = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    q["_at"] = token
+    return urlunparse(parsed._replace(query=urlencode(q)))
+
+
 def get_current_user():
     uid = session.get("user_id")
+    if not uid:
+        token = (
+            request.headers.get("X-Auth-Token")
+            or request.args.get("_at")
+            or request.form.get("_at")
+        )
+        uid = verify_auth_token(token)
+        if uid:
+            session["user_id"] = uid
+            session.permanent = True
     if not uid:
         return None
     conn = get_users_db()
     user = conn.execute("SELECT * FROM users WHERE id=? AND is_active=1", (uid,)).fetchone()
     conn.close()
     return user
+
 
 def get_user_permissions(user_id):
     conn = get_users_db()
@@ -218,7 +290,22 @@ def get_user_permissions(user_id):
         WHERE ur.user_id = ?
     """, (user_id,)).fetchall()
     conn.close()
-    return set(r["name"] for r in rows)
+    perms = set(r["name"] for r in rows)
+    # Effective section visibility: if an action perm is granted, ensure section view is implicitly unlocked
+    if perms & {"web.crawl", "web.delete"}:
+        perms.add("web.view")
+    if perms & {"telegram.crawl", "telegram.delete"}:
+        perms.add("telegram.view")
+    if perms & {"x.crawl", "x.delete"}:
+        perms.add("x.view")
+    if any(p.startswith(("users.", "roles.")) for p in perms):
+        perms.add("admin.access")
+        if perms & {"users.create", "users.edit", "users.delete"}:
+            perms.add("users.view")
+        if perms & {"roles.create", "roles.edit", "roles.delete"}:
+            perms.add("roles.view")
+    return perms
+
 
 def get_user_roles(user_id):
     conn = get_users_db()
@@ -230,12 +317,22 @@ def get_user_roles(user_id):
     conn.close()
     return [dict(r) for r in rows]
 
+
 def has_permission(perm):
     user = get_current_user()
     if not user:
         return False
     perms = get_user_permissions(user["id"])
     return perm in perms
+
+
+@app.context_processor
+def inject_auth_context():
+    user = get_current_user()
+    if not user:
+        return {"auth_token": ""}
+    return {"auth_token": make_auth_token(user["id"])}
+
 
 def login_required(f):
     from functools import wraps
@@ -246,6 +343,7 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated
 
+
 def permission_required(perm):
     from functools import wraps
     def decorator(f):
@@ -255,33 +353,78 @@ def permission_required(perm):
             if not user:
                 return redirect(url_for("login", next=request.path))
             if not has_permission(perm):
-                flash(f"شما دسترسی «{perm}» را ندارید.", "error")
+                flash(f"شما دسترسی لازم برای این بخش («{perm}») را ندارید.", "error")
                 return redirect(url_for("landing"))
             return f(*args, **kwargs)
         return decorated
     return decorator
 
-# ---------- Captcha ----------
+
+# ---------- Stateless + Visual SVG Captcha ----------
+def build_captcha_svg(code: str) -> str:
+    width, height = 150, 48
+    lines = []
+    palette = ["#3b82f6", "#06b6d4", "#60a5fa", "#38bdf8", "#818cf8"]
+    for _ in range(5):
+        x1, y1 = random.randint(4, width - 4), random.randint(4, height - 4)
+        x2, y2 = random.randint(4, width - 4), random.randint(4, height - 4)
+        col = random.choice(palette)
+        lines.append(f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{col}" stroke-opacity="0.28" stroke-width="1.5"/>')
+    dots = []
+    for _ in range(18):
+        cx, cy = random.randint(4, width - 4), random.randint(4, height - 4)
+        dots.append(f'<circle cx="{cx}" cy="{cy}" r="1.2" fill="#94a3b8" fill-opacity="0.35"/>')
+    chars = []
+    for idx, ch in enumerate(code):
+        x = 24 + idx * 29
+        y = random.randint(31, 35)
+        rot = random.randint(-12, 12)
+        col = palette[idx % len(palette)]
+        chars.append(
+            f'<text x="{x}" y="{y}" fill="{col}" font-family="monospace, sans-serif" '
+            f'font-size="26" font-weight="bold" transform="rotate({rot} {x} {y})">{ch}</text>'
+        )
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">'
+        f'<rect width="100%" height="100%" rx="8" fill="#0b1120"/>'
+        f'{"".join(lines)}{"".join(dots)}{"".join(chars)}'
+        f'</svg>'
+    )
+    b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return f"data:image/svg+xml;base64,{b64}"
+
+
 def generate_captcha():
-    a = random.randint(2, 20)
-    b = random.randint(2, 20)
-    op = random.choice(["+", "-", "×"])
-    if op == "+":
-        ans = a + b
-        q = f"{a} + {b}"
-    elif op == "-":
-        if a < b:
-            a, b = b, a
-        ans = a - b
-        q = f"{a} - {b}"
-    else:
-        a = random.randint(2, 9)
-        b = random.randint(2, 9)
-        ans = a * b
-        q = f"{a} × {b}"
-    session["captcha_answer"] = ans
-    session["captcha_question"] = q
-    return q
+    # 4 clear digits (1-9) — unambiguous in both Persian & English keyboards
+    code = "".join(random.choices("123456789", k=4))
+    nonce = random.randint(100000, 999999)
+    token = captcha_signer.dumps({"a": code, "n": nonce})
+    svg_uri = build_captcha_svg(code)
+    # Also store in session for test convenience
+    session["captcha_answer"] = code
+    return {"code": code, "token": token, "svg": svg_uri}
+
+
+def verify_captcha(user_input: str, token: str) -> bool:
+    cleaned = re.sub(r"\s+", "", normalize_digits(user_input))
+    if not cleaned:
+        return False
+    # 1. Verify signed stateless token (works even if cookies are blocked in iframe)
+    if token:
+        try:
+            payload = captcha_signer.loads(token, max_age=900)  # 15 minutes
+            expected = normalize_digits(str(payload.get("a", "")))
+            if expected and cleaned == expected:
+                return True
+            return False
+        except (BadSignature, SignatureExpired, Exception):
+            pass
+    # 2. Fallback to session answer (e.g. automated tests posting without token)
+    sess_expected = session.get("captcha_answer")
+    if sess_expected is not None and cleaned == normalize_digits(str(sess_expected)):
+        return True
+    return False
+
 
 # ---------- URL Validation ----------
 def is_x_url(url):
@@ -289,16 +432,18 @@ def is_x_url(url):
         host = urlparse(url).hostname or ""
         host = host.lower()
         return host in ("x.com", "www.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com") or host.endswith(".x.com") or host.endswith(".twitter.com")
-    except:
+    except Exception:
         return False
+
 
 def is_telegram_url(url):
     try:
         host = urlparse(url).hostname or ""
         host = host.lower()
         return host in ("t.me", "www.t.me", "telegram.me", "www.telegram.me", "telegram.dog", "www.telegram.dog") or host.endswith(".t.me")
-    except:
+    except Exception:
         return False
+
 
 def normalize_url(url):
     url = url.strip()
@@ -308,10 +453,12 @@ def normalize_url(url):
         url = "https://" + url
     return url
 
+
 # ---------- Crawlers ----------
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 }
+
 
 def crawl_web(url):
     url = normalize_url(url)
@@ -330,18 +477,16 @@ def crawl_web(url):
     except Exception as e:
         return {"url": url, "title": urlparse(url).hostname or url, "description": "", "links_count": 0, "snippet": f"خطا در خزش: {str(e)[:300]}", "status": "error"}
 
+
 def crawl_telegram(url):
     url = normalize_url(url)
-    # extract channel
     parsed = urlparse(url)
     path = parsed.path.strip("/")
     channel = path.split("/")[0] if path else ""
-    # try t.me/s/channel
     fetch_url = f"https://t.me/s/{channel}" if channel else url
     try:
         resp = requests.get(fetch_url, headers=HEADERS, timeout=10)
         soup = BeautifulSoup(resp.text, "html.parser")
-        # try to find channel title
         title_el = soup.select_one(".tgme_channel_info_header_title span") or soup.select_one(".tgme_page_title span") or soup.title
         title = title_el.get_text(strip=True) if title_el else (channel or url)
         posts = soup.select(".tgme_widget_message")
@@ -356,9 +501,9 @@ def crawl_telegram(url):
             snippet = f"کانال: {channel} - {posts_count} پست یافت شد."
         return {"url": url, "channel": channel, "title": title, "posts_count": posts_count, "snippet": snippet, "status": "success"}
     except Exception as e:
-        # fallback mock
         return {"url": url, "channel": channel, "title": channel or url, "posts_count": 0,
                 "snippet": f"کانال تلگرام: {channel}\n(خزش مستقیم با خطا مواجه شد: {str(e)[:200]})\nلینک ثبت شد.", "status": "success"}
+
 
 def crawl_x(url):
     url = normalize_url(url)
@@ -374,59 +519,75 @@ def crawl_x(url):
     except Exception as e:
         return {"url": url, "title": "پست ایکس", "snippet": f"لینک ایکس ثبت شد.\n(خزش مستقیم: {str(e)[:200]})", "status": "success"}
 
-# ---------- Routes: Landing ----------
+
+# ---------- Routes: Landing & Login ----------
+def render_login_page(error=None, username_val=""):
+    cap = generate_captcha()
+    return render_template(
+        "login.html",
+        captcha_svg=cap["svg"],
+        captcha_token=cap["token"],
+        error=error,
+        username_val=username_val,
+    )
+
+
+@app.route("/api/captcha")
+def api_captcha():
+    cap = generate_captcha()
+    return jsonify({"svg": cap["svg"], "token": cap["token"]})
+
+
 @app.route("/")
 def landing():
     user = get_current_user()
-    perms = get_user_permissions(user["id"]) if user else set()
-    return render_template("landing.html", user=user, perms=perms)
+    if not user:
+        # First page shows ONLY the login page when unauthenticated
+        return render_login_page()
+    perms = get_user_permissions(user["id"])
+    roles = get_user_roles(user["id"])
+    return render_template("landing.html", user=user, perms=perms, roles=roles)
 
-# ---------- Routes: Auth ----------
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    if get_current_user():
-        return redirect(url_for("landing"))
-    if request.method == "POST":
-        username = (request.form.get("username") or "").strip()
-        password = request.form.get("password") or ""
-        captcha_input = (request.form.get("captcha") or "").strip()
-        expected = session.get("captcha_answer")
-        # verify captcha
-        try:
-            if expected is None or int(captcha_input) != int(expected):
-                flash("کپچا اشتباه است. دوباره تلاش کنید.", "error")
-                generate_captcha()
-                return render_template("login.html", captcha_q=session.get("captcha_question"))
-        except:
-            flash("کپچا اشتباه است.", "error")
-            generate_captcha()
-            return render_template("login.html", captcha_q=session.get("captcha_question"))
+    if request.method == "GET":
+        if get_current_user():
+            return redirect(url_for("landing"))
+        return render_login_page()
 
-        conn = get_users_db()
-        user = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
-        conn.close()
-        if not user or not check_password_hash(user["password_hash"], password):
-            flash("نام کاربری یا رمز عبور اشتباه است.", "error")
-            generate_captcha()
-            return render_template("login.html", captcha_q=session.get("captcha_question"))
-        if not user["is_active"]:
-            flash("حساب شما غیرفعال است.", "error")
-            generate_captcha()
-            return render_template("login.html", captcha_q=session.get("captcha_question"))
+    username = (request.form.get("username") or "").strip()
+    password = request.form.get("password") or ""
+    captcha_input = request.form.get("captcha") or ""
+    captcha_token = request.form.get("captcha_token") or ""
 
-        session.clear()
-        session["user_id"] = user["id"]
-        session.permanent = True
-        nxt = request.args.get("next") or request.form.get("next") or url_for("landing")
-        return redirect(nxt)
-    else:
-        q = generate_captcha()
-        return render_template("login.html", captcha_q=q)
+    if not verify_captcha(captcha_input, captcha_token):
+        return render_login_page(error="کد امنیتی (کپچا) اشتباه است یا منقضی شده. لطفاً کد جدید را وارد کنید.", username_val=username)
+
+    conn = get_users_db()
+    user = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+    conn.close()
+    if not user or not check_password_hash(user["password_hash"], password):
+        return render_login_page(error="نام کاربری یا رمز عبور اشتباه است.", username_val=username)
+    if not user["is_active"]:
+        return render_login_page(error="حساب کاربری شما غیرفعال شده است.", username_val=username)
+
+    session.clear()
+    session["user_id"] = user["id"]
+    session.permanent = True
+
+    token = make_auth_token(user["id"])
+    nxt = (request.args.get("next") or request.form.get("next") or "").strip()
+    if not nxt or not nxt.startswith("/") or nxt.startswith("//") or nxt.startswith("/login"):
+        nxt = url_for("landing")
+    return redirect(append_token_to_url(nxt, token))
+
 
 @app.route("/logout")
 def logout():
     session.clear()
-    return redirect(url_for("landing"))
+    return redirect(url_for("login"))
+
 
 # ---------- Routes: Web ----------
 @app.route("/web")
@@ -436,6 +597,7 @@ def web_page():
     user = get_current_user()
     perms = get_user_permissions(user["id"])
     return render_template("web.html", user=user, perms=perms)
+
 
 @app.route("/api/web/crawl", methods=["POST"])
 @login_required
@@ -464,6 +626,7 @@ def api_web_crawl():
     result["id"] = rid
     return jsonify(result)
 
+
 @app.route("/api/web/list")
 @login_required
 def api_web_list():
@@ -473,6 +636,7 @@ def api_web_list():
     rows = conn.execute("SELECT * FROM web_crawls ORDER BY id DESC LIMIT 100").fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
+
 
 @app.route("/api/web/delete/<int:rid>", methods=["DELETE"])
 @login_required
@@ -485,6 +649,7 @@ def api_web_delete(rid):
     conn.close()
     return jsonify({"ok": True})
 
+
 # ---------- Routes: Telegram ----------
 @app.route("/telegram")
 @login_required
@@ -493,6 +658,7 @@ def telegram_page():
     user = get_current_user()
     perms = get_user_permissions(user["id"])
     return render_template("telegram.html", user=user, perms=perms)
+
 
 @app.route("/api/telegram/crawl", methods=["POST"])
 @login_required
@@ -519,6 +685,7 @@ def api_telegram_crawl():
     result["id"] = rid
     return jsonify(result)
 
+
 @app.route("/api/telegram/list")
 @login_required
 def api_telegram_list():
@@ -528,6 +695,7 @@ def api_telegram_list():
     rows = conn.execute("SELECT * FROM telegram_crawls ORDER BY id DESC LIMIT 100").fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
+
 
 @app.route("/api/telegram/delete/<int:rid>", methods=["DELETE"])
 @login_required
@@ -540,6 +708,7 @@ def api_telegram_delete(rid):
     conn.close()
     return jsonify({"ok": True})
 
+
 # ---------- Routes: X ----------
 @app.route("/x")
 @login_required
@@ -548,6 +717,7 @@ def x_page():
     user = get_current_user()
     perms = get_user_permissions(user["id"])
     return render_template("x.html", user=user, perms=perms)
+
 
 @app.route("/api/x/crawl", methods=["POST"])
 @login_required
@@ -574,6 +744,7 @@ def api_x_crawl():
     result["id"] = rid
     return jsonify(result)
 
+
 @app.route("/api/x/list")
 @login_required
 def api_x_list():
@@ -583,6 +754,7 @@ def api_x_list():
     rows = conn.execute("SELECT * FROM x_crawls ORDER BY id DESC LIMIT 100").fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
+
 
 @app.route("/api/x/delete/<int:rid>", methods=["DELETE"])
 @login_required
@@ -595,6 +767,7 @@ def api_x_delete(rid):
     conn.close()
     return jsonify({"ok": True})
 
+
 # ---------- Routes: Admin ----------
 @app.route("/admin")
 @login_required
@@ -603,6 +776,7 @@ def admin_page():
     user = get_current_user()
     perms = get_user_permissions(user["id"])
     return render_template("admin.html", user=user, perms=perms)
+
 
 @app.route("/api/admin/users")
 @login_required
@@ -617,6 +791,7 @@ def api_admin_users():
         result.append({"id": u["id"], "username": u["username"], "is_active": u["is_active"], "created_at": u["created_at"], "roles": [r["name"] for r in roles]})
     conn.close()
     return jsonify(result)
+
 
 @app.route("/api/admin/users", methods=["POST"])
 @login_required
@@ -644,6 +819,7 @@ def api_admin_create_user():
     conn.close()
     return jsonify({"ok": True, "id": uid})
 
+
 @app.route("/api/admin/users/<int:uid>", methods=["PUT"])
 @login_required
 def api_admin_update_user(uid):
@@ -655,7 +831,6 @@ def api_admin_update_user(uid):
     if not user:
         conn.close()
         return jsonify({"error": "کاربر یافت نشد."}), 404
-    # update password if provided
     if data.get("password"):
         conn.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(data["password"]), uid))
     if "is_active" in data:
@@ -669,6 +844,7 @@ def api_admin_update_user(uid):
     conn.commit()
     conn.close()
     return jsonify({"ok": True})
+
 
 @app.route("/api/admin/users/<int:uid>", methods=["DELETE"])
 @login_required
@@ -684,10 +860,11 @@ def api_admin_delete_user(uid):
     conn.close()
     return jsonify({"ok": True})
 
+
 @app.route("/api/admin/roles")
 @login_required
 def api_admin_roles():
-    if not has_permission("roles.view"):
+    if not has_permission("roles.view") and not has_permission("users.view"):
         return jsonify({"error": "دسترسی ندارید"}), 403
     conn = get_users_db()
     roles = conn.execute("SELECT * FROM roles ORDER BY id").fetchall()
@@ -697,6 +874,7 @@ def api_admin_roles():
         result.append({"id": r["id"], "name": r["name"], "description": r["description"], "created_at": r["created_at"], "permissions": [p["name"] for p in perms]})
     conn.close()
     return jsonify(result)
+
 
 @app.route("/api/admin/roles", methods=["POST"])
 @login_required
@@ -724,6 +902,7 @@ def api_admin_create_role():
     conn.close()
     return jsonify({"ok": True, "id": rid})
 
+
 @app.route("/api/admin/roles/<int:rid>", methods=["PUT"])
 @login_required
 def api_admin_update_role(rid):
@@ -747,6 +926,7 @@ def api_admin_update_role(rid):
     conn.close()
     return jsonify({"ok": True})
 
+
 @app.route("/api/admin/roles/<int:rid>", methods=["DELETE"])
 @login_required
 def api_admin_delete_role(rid):
@@ -762,13 +942,17 @@ def api_admin_delete_role(rid):
     conn.close()
     return jsonify({"ok": True})
 
+
 @app.route("/api/admin/permissions")
 @login_required
 def api_admin_permissions():
+    if not has_permission("admin.access"):
+        return jsonify({"error": "دسترسی ندارید"}), 403
     conn = get_users_db()
     rows = conn.execute("SELECT * FROM permissions ORDER BY category, name").fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
+
 
 @app.route("/api/me")
 def api_me():
@@ -779,10 +963,12 @@ def api_me():
     roles = get_user_roles(user["id"])
     return jsonify({"logged_in": True, "username": user["username"], "roles": [r["name"] for r in roles], "permissions": sorted(list(perms))})
 
+
 # ---------- Health ----------
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok", "app": "payeshgar", "version": "1.0.0"})
+    return jsonify({"status": "ok", "app": "payeshgar", "version": "1.1.0"})
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
