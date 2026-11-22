@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}محیط ایکس | پایشگر{% endblock %}
+{% block content %}
+<div class="panel">
+  <h2>𝕏 محیط خزش شبکه ایکس</h2>
+  <p class="sub">لینک پست یا پروفایل شبکه ایکس را وارد کنید. این محیط مشابه محیط وب است با این تفاوت که <b>تنها لینک‌های شبکه ایکس (x.com / twitter.com)</b> پذیرفته می‌شوند و سایر لینک‌ها مجاز نیستند.</p>
+
+  {% if 'x.crawl' in perms %}
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <input id="xUrl" type="text" placeholder="https://x.com/username/status/123456" dir="ltr" style="flex:1;min-width:240px;padding:12px 14px;border-radius:10px;background:var(--bg2);border:1px solid var(--border);color:var(--text);font-family:monospace">
+    <button id="crawlBtn" class="btn btn-primary" onclick="crawlX()">🚀 شروع خزش ایکس</button>
+  </div>
+  {% else %}
+  <div class="alert alert-info">شما فقط دسترسی مشاهده نتایج ایکس را دارید (دسترسی خزش ندارید).</div>
+  {% endif %}
+  <div id="msg" style="margin-top:12px"></div>
+</div>
+
+<div style="margin-top:24px;display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+  <h3 style="font-size:17px;font-weight:800">📋 تاریخچه خزش‌های ایکس</h3>
+  <button class="btn btn-ghost btn-sm" onclick="loadList()">🔄 بروزرسانی</button>
+</div>
+<div id="list"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const canDelete = {{ 'true' if 'x.delete' in perms else 'false' }};
+
+function showMsg(text, type='error') {
+  document.getElementById('msg').innerHTML = `<div class="alert alert-${type}">${text}</div>`;
+}
+
+function isXUrl(u) {
+  try {
+    let url = u.trim();
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+    const h = new URL(url).hostname.toLowerCase();
+    return h === 'x.com' || h === 'www.x.com' || h === 'twitter.com' || h === 'www.twitter.com' || h === 'mobile.twitter.com' || h.endsWith('.x.com') || h.endsWith('.twitter.com');
+  } catch(e){ return false; }
+}
+
+async function crawlX() {
+  const input = document.getElementById('xUrl');
+  const url = input.value.trim();
+  if (!url) { showMsg('لطفاً لینک ایکس را وارد کنید.'); return; }
+  if (!isXUrl(url)) {
+    showMsg('⛔ فقط لینک‌های شبکه ایکس (x.com / twitter.com) در این بخش قابل پذیرش هستند! سایر لینک‌ها پذیرفته نمی‌شوند.');
+    return;
+  }
+  const btn = document.getElementById('crawlBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> در حال خزش...';
+  document.getElementById('msg').innerHTML = '';
+  try {
+    const res = await fetch('/api/x/crawl', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({url})
+    });
+    const data = await res.json();
+    if (!res.ok) { showMsg(data.error || 'خطا در خزش'); }
+    else { showMsg('✅ خزش ایکس با موفقیت انجام شد.', 'success'); input.value=''; loadList(); }
+  } catch(e) { showMsg('خطای ارتباط با سرور'); }
+  btn.disabled = false; btn.innerHTML = '🚀 شروع خزش ایکس';
+}
+
+async function delItem(id) {
+  if (!confirm('آیا این نتیجه حذف شود؟')) return;
+  const res = await fetch('/api/x/delete/' + id, {method:'DELETE'});
+  if (res.ok) loadList(); else { const d = await res.json(); alert(d.error || 'خطا'); }
+}
+
+function esc(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function loadList() {
+  const wrap = document.getElementById('list');
+  const res = await fetch('/api/x/list');
+  const items = await res.json();
+  if (!items.length) {
+    wrap.innerHTML = '<div class="empty"><div class="big">𝕏</div>هنوز هیچ خزشی در محیط ایکس ثبت نشده است.</div>';
+    return;
+  }
+  wrap.innerHTML = items.map(it => `
+    <div class="result-card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div>
+          <h4>${esc(it.title || 'پست ایکس')}</h4>
+          <a class="url" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.url)}</a>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="status ${it.status}">${it.status === 'success' ? 'موفق' : 'خطا'}</span>
+          ${canDelete ? `<button class="btn btn-danger btn-sm" onclick="delItem(${it.id})">🗑 حذف</button>` : ''}
+        </div>
+      </div>
+      ${it.snippet ? `<div class="snippet">${esc(it.snippet)}</div>` : ''}
+      <div class="meta">
+        <span>👤 کاربر: ${esc(it.created_by || '-')}</span>
+        <span>🕒 ${esc(it.created_at || '')}</span>
+      </div>
+    </div>
+  `).join('');
+}
+loadList();
+</script>
+{% endblock %}

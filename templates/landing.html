@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}پایشگر | صفحه اصلی{% endblock %}
+{% block content %}
+<div class="hero">
+  <h1>به <span>پایشگر</span> خوش آمدید</h1>
+  <p>سامانه یکپارچه خزش و پایش — سه محیط مستقل برای وب، تلگرام و ایکس. محیط مورد نظر را انتخاب کنید تا وارد فضای کاری آن شوید.</p>
+  {% if not user %}
+    <p style="margin-top:14px"><a href="{{ url_for('login') }}" class="btn btn-primary">🔑 ورود به سامانه</a></p>
+  {% else %}
+    <p style="margin-top:14px;color:var(--muted);font-size:13px">وارد شده‌اید با نام <b style="color:var(--text)">{{ user.username }}</b> — محیط مورد نظر را انتخاب کنید</p>
+  {% endif %}
+</div>
+
+<div class="cards">
+  <!-- Web -->
+  <div class="env-card {% if user and 'web.view' not in perms %}disabled{% endif %}" onclick="goEnv('web')">
+    <div class="env-icon web">🌐</div>
+    <h3>وب <small style="color:var(--muted);font-size:12px">Web Crawler</small></h3>
+    <p>خزش وب‌سایت‌ها (به‌غیر از ایکس و تلگرام). عنوان، توضیحات، لینک‌ها و متن صفحات را استخراج و ذخیره کنید.</p>
+    <div style="margin-top:10px">
+      {% if not user %}<span class="badge locked">🔒 نیازمند ورود</span>
+      {% elif 'web.view' in perms %}<span class="badge ok">✅ دسترسی دارید</span>
+      {% else %}<span class="badge locked">🔒 دسترسی ندارید</span>{% endif %}
+    </div>
+    <span class="go">ورود به محیط وب ←</span>
+  </div>
+
+  <!-- Telegram -->
+  <div class="env-card {% if user and 'telegram.view' not in perms %}disabled{% endif %}" onclick="goEnv('telegram')">
+    <div class="env-icon telegram">✈️</div>
+    <h3>تلگرام <small style="color:var(--muted);font-size:12px">Telegram Crawler</small></h3>
+    <p>خزش کانال‌ها و گروه‌های تلگرام (t.me). پست‌ها، عنوان کانال و محتوای اخیر را پایش کنید.</p>
+    <div style="margin-top:10px">
+      {% if not user %}<span class="badge locked">🔒 نیازمند ورود</span>
+      {% elif 'telegram.view' in perms %}<span class="badge ok">✅ دسترسی دارید</span>
+      {% else %}<span class="badge locked">🔒 دسترسی ندارید</span>{% endif %}
+    </div>
+    <span class="go">ورود به محیط تلگرام ←</span>
+  </div>
+
+  <!-- X -->
+  <div class="env-card {% if user and 'x.view' not in perms %}disabled{% endif %}" onclick="goEnv('x')">
+    <div class="env-icon x">𝕏</div>
+    <h3>ایکس <small style="color:var(--muted);font-size:12px">X Crawler</small></h3>
+    <p>خزش شبکه ایکس (x.com / twitter.com). فقط لینک‌های ایکس پذیرفته می‌شوند و کاملاً مشابه محیط وب عمل می‌کند.</p>
+    <div style="margin-top:10px">
+      {% if not user %}<span class="badge locked">🔒 نیازمند ورود</span>
+      {% elif 'x.view' in perms %}<span class="badge ok">✅ دسترسی دارید</span>
+      {% else %}<span class="badge locked">🔒 دسترسی ندارید</span>{% endif %}
+    </div>
+    <span class="go">ورود به محیط ایکس ←</span>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:28px">
+  <h2>🔐 امنیت و دسترسی (ACL)</h2>
+  <p class="sub">ورود با نام کاربری، رمز عبور و کپچا انجام می‌شود. مدیر سیستم نقش‌ها را تعریف می‌کند و هر نقش مجموعه‌ای از دسترسی‌ها (از سطح کلی تا اکشن) را دارد. فضای کاربری و پایگاه داده کاربران کاملاً از هم تفکیک شده‌اند.</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;font-size:13px;color:var(--muted)">
+    <div>✅ احراز هویت + کپچا</div>
+    <div>✅ نقش‌ها و دسترسی‌های جزئی</div>
+    <div>✅ تفکیک users.db و workspace.db</div>
+    <div>✅ سه محیط مستقل وب / تلگرام / ایکس</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const isLoggedIn = {{ 'true' if user else 'false' }};
+const perms = {{ perms|list|tojson if perms else '[]' }};
+function goEnv(env) {
+  if (!isLoggedIn) { window.location.href = '/login?next=/' + env; return; }
+  const need = env + '.view';
+  if (!perms.includes(need)) { alert('شما دسترسی مشاهده بخش «' + env + '» را ندارید. با مدیر سیستم تماس بگیرید.'); return; }
+  window.location.href = '/' + env;
+}
+</script>
+{% endblock %}

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}پایشگر{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="header">
+  <div class="header-inner">
+    <a href="{{ url_for('landing') }}" class="logo" style="text-decoration:none;color:inherit">
+      <span class="logo-icon">📡</span>
+      <span>پایشگر<small>Payeshgar • سامانه خزش و پایش</small></span>
+    </a>
+    <nav class="nav">
+      <a href="{{ url_for('landing') }}" class="{% if request.path == '/' %}active{% endif %}">🏠 صفحه اصلی</a>
+      {% if user %}
+        <a href="{{ url_for('web_page') }}" class="{% if request.path == '/web' %}active{% endif %}">🌐 وب</a>
+        <a href="{{ url_for('telegram_page') }}" class="{% if request.path == '/telegram' %}active{% endif %}">✈️ تلگرام</a>
+        <a href="{{ url_for('x_page') }}" class="{% if request.path == '/x' %}active{% endif %}">𝕏 ایکس</a>
+        {% if 'admin.access' in perms %}
+        <a href="{{ url_for('admin_page') }}" class="{% if request.path == '/admin' %}active{% endif %}">⚙️ مدیریت</a>
+        {% endif %}
+        <span class="user-chip"><span class="avatar">{{ user.username[0]|upper }}</span> {{ user.username }}</span>
+        <a href="{{ url_for('logout') }}">🚪 خروج</a>
+      {% else %}
+        <a href="{{ url_for('login') }}">🔑 ورود</a>
+      {% endif %}
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+      <div class="alert alert-{{ 'error' if cat == 'error' else 'success' }}">{{ msg }}</div>
+    {% endfor %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="footer">
+  پایشگر © ۲۰۲۶ — سامانه یکپارچه خزش وب، تلگرام و ایکس با مدیریت دسترسی ACL
+</footer>
+{% block scripts %}{% endblock %}
+</body>
+</html>
