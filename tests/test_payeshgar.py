@@ -85,6 +85,14 @@ def test_login_only_first_page_and_cookieless_iframe_auth(tmp_path: Path):
 
     with TestClient(app) as fresh_nocookie_client:
         fresh_nocookie_client.cookies.clear()
+        # Static CSS & JS of all 3 environments must load with 200 OK even without any cookies or _at token!
+        for mod in ("web", "telegram", "x"):
+            r_css = fresh_nocookie_client.get(f"/{mod}/static/css/style.css", follow_redirects=False)
+            assert r_css.status_code == 200, f"/{mod}/static/css/style.css -> {r_css.status_code}"
+            assert "text/css" in r_css.headers.get("content-type", "")
+            r_js = fresh_nocookie_client.get(f"/{mod}/static/js/app.js", follow_redirects=False)
+            assert r_js.status_code == 200, f"/{mod}/static/js/app.js -> {r_js.status_code}"
+
         r_dash = fresh_nocookie_client.get(loc)
         assert r_dash.status_code == 200
         assert "Website Collector" in r_dash.text

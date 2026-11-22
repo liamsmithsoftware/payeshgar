@@ -51,6 +51,10 @@ def set_session_cookie(response: Response, request: Request, token: str) -> None
             f"HttpOnly; Secure; SameSite=None; Partitioned"
         )
         response.headers.append("Set-Cookie", cookie_val)
+        response.headers.append(
+            "Set-Cookie",
+            f"pg_ck=1; Max-Age={SESSION_MAX_AGE}; Path=/; Secure; SameSite=None; Partitioned",
+        )
     else:
         response.set_cookie(
             key=COOKIE_NAME,
@@ -58,6 +62,14 @@ def set_session_cookie(response: Response, request: Request, token: str) -> None
             max_age=SESSION_MAX_AGE,
             path="/",
             httponly=True,
+            samesite="lax",
+        )
+        response.set_cookie(
+            key="pg_ck",
+            value="1",
+            max_age=SESSION_MAX_AGE,
+            path="/",
+            httponly=False,
             samesite="lax",
         )
 
@@ -68,8 +80,13 @@ def clear_session_cookie(response: Response, request: Request) -> None:
             "Set-Cookie",
             f"{COOKIE_NAME}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=None; Partitioned",
         )
+        response.headers.append(
+            "Set-Cookie",
+            "pg_ck=; Max-Age=0; Path=/; Secure; SameSite=None; Partitioned",
+        )
     else:
         response.delete_cookie(key=COOKIE_NAME, path="/")
+        response.delete_cookie(key="pg_ck", path="/")
 
 
 def build_subapp_acl_css(mod: str, perms: Set[str]) -> str:
@@ -259,8 +276,10 @@ def build_subapp_bridge_head(mod: str, auth_token: str, perms: Set[str]) -> str:
         const u = new URL(window.location.href);
         if (u.searchParams.has('_at')) {{
             sessionStorage.setItem('payeshgar_at', u.searchParams.get('_at'));
-            u.searchParams.delete('_at');
-            window.history.replaceState({{}}, '', u.pathname + (u.search ? u.search : '') + u.hash);
+            if (document.cookie.includes('pg_ck=1')) {{
+                u.searchParams.delete('_at');
+                window.history.replaceState({{}}, '', u.pathname + (u.search ? u.search : '') + u.hash);
+            }}
         }}
     }} catch (e) {{}}
 
@@ -415,6 +434,10 @@ def create_payeshgar_app(
                 break
 
         if matched_mod:
+            # Public static assets (CSS/JS) and healthcheck never require session cookies
+            if sub_path.startswith("/static/") or sub_path == "/healthz":
+                return await call_next(request)
+
             user, from_fallback = get_request_user(request)
             is_api = sub_path.startswith("/api/")
             if not user:

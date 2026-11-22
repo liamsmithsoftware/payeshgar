@@ -15,8 +15,10 @@
     const u = new URL(window.location.href);
     if (u.searchParams.has('_at')) {
       sessionStorage.setItem('payeshgar_at', u.searchParams.get('_at'));
-      u.searchParams.delete('_at');
-      window.history.replaceState({}, '', u.pathname + (u.search ? u.search : '') + u.hash);
+      if (document.cookie.includes('pg_ck=1')) {
+        u.searchParams.delete('_at');
+        window.history.replaceState({}, '', u.pathname + (u.search ? u.search : '') + u.hash);
+      }
     }
   } catch (e) {}
 
