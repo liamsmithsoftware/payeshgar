@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}پایشگر | داشبورد محیط‌ها{% endblock %}
+{% block title %}پایشگر | داشبورد محیط‌های پایش{% endblock %}
 {% block content %}
 <div class="hero" style="padding-top:24px">
   <h1>خوش آمدید، <span>{{ user.username }}</span></h1>
-  <p>بخش‌های فعال زیر بر اساس نقش‌ها و دسترسی‌های حساب کاربری شما باز شده‌اند. محیط مورد نظر را انتخاب کنید.</p>
+  <p>بخش‌های زیر بر اساس نقش‌ها و دسترسی‌های حساب کاربری شما فعال شده‌اند. با انتخاب هر محیط، وارد سامانه کامل و مستقل همان بخش خواهید شد.</p>
   {% if roles %}
   <div style="margin-top:12px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
     {% for r in roles %}
@@ -24,52 +24,61 @@
 {% else %}
   <div class="cards">
     {% if 'web.view' in perms %}
-    <div class="env-card" onclick="window.payeshgarNav('/web')">
+    <div class="env-card" onclick="window.payeshgarNav('/web/')">
       <div class="env-icon web">🌐</div>
-      <h3>وب <small style="color:var(--muted);font-size:12px">Web Crawler</small></h3>
-      <p>خزش وب‌سایت‌ها (به‌غیر از ایکس و تلگرام). استخراج و پایش عنوان، توضیحات، لینک‌ها و متن صفحات.</p>
+      <h3>محیط وب <small style="color:var(--muted);font-size:12px">Website Collector</small></h3>
+      <p>آرشیو هوشمند مطالب وب‌سایت‌ها (به‌غیر از ایکس و تلگرام)، فیدهای RSS/Atom، وردپرس، زمان‌بند خودکار، پروکسی اختصاصی هر سایت و خروجی Excel / SQLite.</p>
       <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
         <span class="badge ok">👁 مشاهده</span>
-        {% if 'web.crawl' in perms %}<span class="badge ok">🚀 خزش</span>{% endif %}
-        {% if 'web.delete' in perms %}<span class="badge ok">🗑 حذف</span>{% endif %}
+        {% if 'web.sources' in perms %}<span class="badge ok">➕ منابع</span>{% endif %}
+        {% if 'web.crawl' in perms %}<span class="badge ok">🚀 همگام‌سازی</span>{% endif %}
+        {% if 'web.export' in perms %}<span class="badge ok">📊 خروجی</span>{% endif %}
+        {% if 'web.settings' in perms %}<span class="badge ok">🔧 تنظیمات</span>{% endif %}
+        {% if 'web.delete' in perms %}<span class="badge ok">🗑 حذف/پاک‌سازی</span>{% endif %}
       </div>
-      <span class="go">ورود به محیط وب ←</span>
+      <span class="go">ورود به سامانه کامل وب ←</span>
     </div>
     {% endif %}
 
     {% if 'telegram.view' in perms %}
-    <div class="env-card" onclick="window.payeshgarNav('/telegram')">
+    <div class="env-card" onclick="window.payeshgarNav('/telegram/')">
       <div class="env-icon telegram">✈️</div>
-      <h3>تلگرام <small style="color:var(--muted);font-size:12px">Telegram Crawler</small></h3>
-      <p>خزش کانال‌ها و صفحات عمومی تلگرام (t.me). پایش پست‌ها، عنوان کانال و محتوای اخیر.</p>
+      <h3>محیط تلگرام <small style="color:var(--muted);font-size:12px">Telegram Collector</small></h3>
+      <p>آرشیو هوشمند کانال‌های عمومی و خصوصی تلگرام (وب + Telethon)، زمان‌بند خودکار، جلوگیری از تکرار با شناسه پیام، پشتیبان‌گیری و خروجی Excel / SQLite.</p>
       <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
         <span class="badge ok">👁 مشاهده</span>
-        {% if 'telegram.crawl' in perms %}<span class="badge ok">🚀 خزش</span>{% endif %}
-        {% if 'telegram.delete' in perms %}<span class="badge ok">🗑 حذف</span>{% endif %}
+        {% if 'telegram.sources' in perms %}<span class="badge ok">➕ کانال‌ها</span>{% endif %}
+        {% if 'telegram.crawl' in perms %}<span class="badge ok">🚀 همگام‌سازی</span>{% endif %}
+        {% if 'telegram.export' in perms %}<span class="badge ok">📊 خروجی</span>{% endif %}
+        {% if 'telegram.settings' in perms %}<span class="badge ok">🔧 تنظیمات/Telethon</span>{% endif %}
+        {% if 'telegram.delete' in perms %}<span class="badge ok">🗑 حذف/پاک‌سازی</span>{% endif %}
       </div>
-      <span class="go">ورود به محیط تلگرام ←</span>
+      <span class="go">ورود به سامانه کامل تلگرام ←</span>
     </div>
     {% endif %}
 
     {% if 'x.view' in perms %}
-    <div class="env-card" onclick="window.payeshgarNav('/x')">
+    <div class="env-card" onclick="window.payeshgarNav('/x/')">
       <div class="env-icon x">𝕏</div>
-      <h3>ایکس <small style="color:var(--muted);font-size:12px">X Crawler</small></h3>
-      <p>خزش شبکه ایکس (x.com / twitter.com). مشابه محیط وب، مخصوص لینک‌های شبکه ایکس.</p>
+      <h3>محیط ایکس <small style="color:var(--muted);font-size:12px">X Collector</small></h3>
+      <p>آرشیو هوشمند حساب‌های شبکه ایکس (فقط لینک‌های x.com و twitter.com)، پایش زمان‌بندی‌شده، نشانگر ضدتکرار، پشتیبان‌گیری و خروجی Excel / SQLite.</p>
       <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
         <span class="badge ok">👁 مشاهده</span>
-        {% if 'x.crawl' in perms %}<span class="badge ok">🚀 خزش</span>{% endif %}
-        {% if 'x.delete' in perms %}<span class="badge ok">🗑 حذف</span>{% endif %}
+        {% if 'x.sources' in perms %}<span class="badge ok">➕ حساب‌ها</span>{% endif %}
+        {% if 'x.crawl' in perms %}<span class="badge ok">🚀 همگام‌سازی</span>{% endif %}
+        {% if 'x.export' in perms %}<span class="badge ok">📊 خروجی</span>{% endif %}
+        {% if 'x.settings' in perms %}<span class="badge ok">🔧 تنظیمات</span>{% endif %}
+        {% if 'x.delete' in perms %}<span class="badge ok">🗑 حذف/پاک‌سازی</span>{% endif %}
       </div>
-      <span class="go">ورود به محیط ایکس ←</span>
+      <span class="go">ورود به سامانه کامل ایکس ←</span>
     </div>
     {% endif %}
 
     {% if 'admin.access' in perms %}
     <div class="env-card" onclick="window.payeshgarNav('/admin')">
       <div class="env-icon" style="background:linear-gradient(135deg,#8b5cf6,#ec4899)">⚙️</div>
-      <h3>مدیریت دسترسی‌ها <small style="color:var(--muted);font-size:12px">ACL Admin</small></h3>
-      <p>تعریف کاربران، ایجاد نقش‌ها و تخصیص دسترسی‌های کلی و جزئی (اکشن‌ها) در پایگاه داده مجزای کاربران.</p>
+      <h3>پنل مدیریت ACL <small style="color:var(--muted);font-size:12px">Users & Roles</small></h3>
+      <p>مدیریت کاربران، تعریف نقش‌های دلخواه و تخصیص ۲۷ سطح دسترسی جزئی (از مشاهده کلی تا اکشن‌های افزودن، همگام‌سازی، خروجی، تنظیمات و حذف).</p>
       <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
         {% if 'users.view' in perms %}<span class="badge ok">👥 مدیریت کاربران</span>{% endif %}
         {% if 'roles.view' in perms %}<span class="badge ok">🛡️ مدیریت نقش‌ها</span>{% endif %}

@@ -4,14 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{% block title %}پایشگر{% endblock %}</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<link rel="stylesheet" href="/static/style.css">
 <script>
 (function() {
   const serverToken = {{ auth_token|tojson }};
   if (serverToken) {
     sessionStorage.setItem('payeshgar_at', serverToken);
   }
-  // Clean _at query param from address bar if present
   try {
     const u = new URL(window.location.href);
     if (u.searchParams.has('_at')) {
@@ -21,7 +20,6 @@
     }
   } catch (e) {}
 
-  // Automatically attach X-Auth-Token header to all same-origin fetch requests
   const origFetch = window.fetch.bind(window);
   window.fetch = function(input, init) {
     const tok = sessionStorage.getItem('payeshgar_at');
@@ -68,43 +66,38 @@
 <body>
 <header class="header">
   <div class="header-inner">
-    <a href="{{ url_for('landing') }}" class="logo" style="text-decoration:none;color:inherit">
+    <a href="/" class="logo" style="text-decoration:none;color:inherit">
       <span class="logo-icon">📡</span>
-      <span>پایشگر<small>Payeshgar • سامانه خزش و پایش</small></span>
+      <span>پایشگر<small>Payeshgar • سامانه یکپارچه خزش و آرشیو</small></span>
     </a>
     <nav class="nav">
       {% if user %}
-        <a href="{{ url_for('landing') }}" class="{% if request.path == '/' %}active{% endif %}">🏠 داشبورد</a>
+        <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">🏠 داشبورد</a>
         {% if 'web.view' in perms %}
-        <a href="{{ url_for('web_page') }}" class="{% if request.path == '/web' %}active{% endif %}">🌐 وب</a>
+        <a href="/web/">🌐 وب</a>
         {% endif %}
         {% if 'telegram.view' in perms %}
-        <a href="{{ url_for('telegram_page') }}" class="{% if request.path == '/telegram' %}active{% endif %}">✈️ تلگرام</a>
+        <a href="/telegram/">✈️ تلگرام</a>
         {% endif %}
         {% if 'x.view' in perms %}
-        <a href="{{ url_for('x_page') }}" class="{% if request.path == '/x' %}active{% endif %}">𝕏 ایکس</a>
+        <a href="/x/">𝕏 ایکس</a>
         {% endif %}
         {% if 'admin.access' in perms %}
-        <a href="{{ url_for('admin_page') }}" class="{% if request.path == '/admin' %}active{% endif %}">⚙️ مدیریت ACL</a>
+        <a href="/admin" class="{% if request.url.path == '/admin' %}active{% endif %}">⚙️ مدیریت ACL</a>
         {% endif %}
         <span class="user-chip"><span class="avatar">{{ user.username[0]|upper }}</span> {{ user.username }}</span>
-        <a href="{{ url_for('logout') }}">🚪 خروج</a>
+        <a href="/logout">🚪 خروج</a>
       {% endif %}
     </nav>
   </div>
 </header>
 
 <main class="container">
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% for cat, msg in messages %}
-      <div class="alert alert-{{ 'error' if cat == 'error' else 'success' }}">{{ msg }}</div>
-    {% endfor %}
-  {% endwith %}
   {% block content %}{% endblock %}
 </main>
 
 <footer class="footer">
-  پایشگر © ۲۰۲۶ — سامانه یکپارچه خزش وب، تلگرام و ایکس با مدیریت دسترسی ACL
+  پایشگر © ۲۰۲۶ — سامانه یکپارچه خزش و آرشیو وب، تلگرام و ایکس با مدیریت دسترسی ACL و تفکیک پایگاه داده کاربران و محیط‌های کاری
 </footer>
 {% block scripts %}{% endblock %}
 </body>

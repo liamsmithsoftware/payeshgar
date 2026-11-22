@@ -4,26 +4,21 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ورود به سامانه | پایشگر</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <div class="login-wrap" style="min-height:100vh">
   <div class="login-card">
     <div class="logo-icon">📡</div>
     <h2 style="text-align:center;font-size:24px;font-weight:900">پایشگر</h2>
-    <p style="text-align:center;color:var(--muted);font-size:13px;margin:6px 0 22px">سامانه یکپارچه خزش و پایش — لطفاً وارد حساب کاربری خود شوید</p>
+    <p style="text-align:center;color:var(--muted);font-size:13px;margin:6px 0 22px">سامانه یکپارچه خزش و آرشیو وب، تلگرام و ایکس — لطفاً وارد شوید</p>
 
     {% if error %}
       <div class="alert alert-error">{{ error }}</div>
     {% endif %}
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% for cat, msg in messages %}
-        <div class="alert alert-{{ 'error' if cat == 'error' else 'success' }}">{{ msg }}</div>
-      {% endfor %}
-    {% endwith %}
 
-    <form method="POST" action="{{ url_for('login') }}">
-      <input type="hidden" name="next" value="{{ request.args.get('next', request.form.get('next', '')) }}">
+    <form method="POST" action="/login">
+      <input type="hidden" name="next" value="{{ next_val or '' }}">
       <input type="hidden" name="captcha_token" id="captchaToken" value="{{ captcha_token }}">
 
       <div class="field">
