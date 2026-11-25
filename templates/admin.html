@@ -1,0 +1,350 @@
+{% extends "base.html" %}
+{% block title %}پنل مدیریت ACL | پایشگر{% endblock %}
+{% block content %}
+<div class="panel" style="margin-bottom:20px">
+  <h2>⚙️ پنل مدیریت دسترسی‌ها (ACL)</h2>
+  <p class="sub">تعریف و مدیریت کاربران، نقش‌ها و دسترسی‌های جزئی (از سطح مشاهده کلی تا اکشن‌های خزش و حذف). پایگاه داده کاربران (<code>users.db</code>) کاملاً از پایگاه داده فضای کاری (<code>workspace.db</code>) جداست.</p>
+</div>
+
+{% set can_users = 'users.view' in perms %}
+{% set can_roles = 'roles.view' in perms %}
+
+{% if not can_users and not can_roles %}
+<div class="alert alert-info">شما به پنل مدیریت دسترسی دارید اما دسترسی مشاهده لیست کاربران یا نقش‌ها برایتان فعال نشده است.</div>
+{% else %}
+<div class="tabs">
+  {% if can_users %}
+  <button class="tab active" id="tabUsersBtn" onclick="switchTab('users')">👥 مدیریت کاربران</button>
+  {% endif %}
+  {% if can_roles %}
+  <button class="tab {% if not can_users %}active{% endif %}" id="tabRolesBtn" onclick="switchTab('roles')">🛡️ مدیریت نقش‌ها و دسترسی‌ها</button>
+  {% endif %}
+</div>
+
+{% if can_users %}
+<!-- USERS SECTION -->
+<div id="secUsers">
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+      <h2 style="margin:0">👥 لیست کاربران</h2>
+      {% if 'users.create' in perms %}
+      <button class="btn btn-primary btn-sm" onclick="openUserModal()">➕ افزودن کاربر جدید</button>
+      {% endif %}
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>شناسه</th>
+            <th>نام کاربری</th>
+            <th>نقش‌ها</th>
+            <th>وضعیت</th>
+            <th>تاریخ ایجاد</th>
+            <th>عملیات</th>
+          </tr>
+        </thead>
+        <tbody id="usersBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if can_roles %}
+<!-- ROLES SECTION -->
+<div id="secRoles" style="{% if can_users %}display:none{% endif %}">
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+      <h2 style="margin:0">🛡️ لیست نقش‌ها</h2>
+      {% if 'roles.create' in perms %}
+      <button class="btn btn-primary btn-sm" onclick="openRoleModal()">➕ تعریف نقش جدید</button>
+      {% endif %}
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>شناسه</th>
+            <th>نام نقش</th>
+            <th>توضیحات</th>
+            <th>تعداد دسترسی‌ها</th>
+            <th>دسترسی‌ها</th>
+            <th>عملیات</th>
+          </tr>
+        </thead>
+        <tbody id="rolesBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endif %}
+
+<!-- USER MODAL -->
+<div class="modal-overlay" id="userModal">
+  <div class="modal">
+    <h3 id="userModalTitle">افزودن کاربر</h3>
+    <input type="hidden" id="editUserId">
+    <div class="field" id="usernameFieldWrap">
+      <label>نام کاربری</label>
+      <input type="text" id="uUsername" placeholder="username" dir="ltr" style="text-align:left">
+    </div>
+    <div class="field">
+      <label id="pwdLabel">رمز عبور</label>
+      <input type="password" id="uPassword" placeholder="••••••••" dir="ltr" style="text-align:left">
+    </div>
+    <div class="field" id="activeWrap" style="display:none">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="uActive" checked style="width:auto"> کاربر فعال باشد
+      </label>
+    </div>
+    <div class="field">
+      <label>نقش‌های اختصاص‌یافته</label>
+      <div id="userRolesList" class="perm-grid"></div>
+    </div>
+    <div id="userModalErr"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="saveUser()">💾 ذخیره</button>
+      <button class="btn btn-ghost" onclick="closeModal('userModal')">انصراف</button>
+    </div>
+  </div>
+</div>
+
+<!-- ROLE MODAL -->
+<div class="modal-overlay" id="roleModal">
+  <div class="modal">
+    <h3 id="roleModalTitle">تعریف نقش</h3>
+    <input type="hidden" id="editRoleId">
+    <div class="field" id="roleNameWrap">
+      <label>نام نقش (انگلیسی یا فارسی)</label>
+      <input type="text" id="rName" placeholder="مثلاً analyst">
+    </div>
+    <div class="field">
+      <label>توضیحات نقش</label>
+      <input type="text" id="rDesc" placeholder="توضیح کوتاه درباره نقش">
+    </div>
+    <div class="field">
+      <label style="display:flex;justify-content:space-between;align-items:center">
+        <span>دسترسی‌های این نقش (از سطح کلی تا اکشن‌ها)</span>
+        <span>
+          <a href="#" onclick="toggleAllPerms(true);return false" style="font-size:11px">انتخاب همه</a> |
+          <a href="#" onclick="toggleAllPerms(false);return false" style="font-size:11px">هیچکدام</a>
+        </span>
+      </label>
+      <div id="rolePermsWrap" style="max-height:300px;overflow-y:auto;padding:4px"></div>
+    </div>
+    <div id="roleModalErr"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="saveRole()">💾 ذخیره نقش</button>
+      <button class="btn btn-ghost" onclick="closeModal('roleModal')">انصراف</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const myPerms = {{ perms|list|tojson }};
+let allPerms = [];
+let allRoles = [];
+let allUsers = [];
+
+function esc(s){ return String(s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function switchTab(t) {
+  const su = document.getElementById('secUsers');
+  const sr = document.getElementById('secRoles');
+  const bu = document.getElementById('tabUsersBtn');
+  const br = document.getElementById('tabRolesBtn');
+  if (su) su.style.display = t==='users' ? 'block' : 'none';
+  if (sr) sr.style.display = t==='roles' ? 'block' : 'none';
+  if (bu) bu.classList.toggle('active', t==='users');
+  if (br) br.classList.toggle('active', t==='roles');
+}
+
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+
+async function loadAll() {
+  const pRes = await fetch('/api/admin/permissions');
+  if (pRes.ok) allPerms = await pRes.json();
+
+  if (myPerms.includes('roles.view') || myPerms.includes('users.view')) {
+    const rRes = await fetch('/api/admin/roles');
+    if (rRes.ok) allRoles = await rRes.json();
+  }
+  if (myPerms.includes('users.view')) {
+    const uRes = await fetch('/api/admin/users');
+    if (uRes.ok) allUsers = await uRes.json();
+    renderUsers();
+  }
+  if (myPerms.includes('roles.view')) {
+    renderRoles();
+  }
+}
+
+function renderUsers() {
+  const tb = document.getElementById('usersBody');
+  if (!tb) return;
+  const canEdit = myPerms.includes('users.edit');
+  const canDel = myPerms.includes('users.delete');
+  tb.innerHTML = allUsers.map(u => `
+    <tr>
+      <td>${u.id}</td>
+      <td><b>${esc(u.username)}</b></td>
+      <td>${(u.roles||[]).map(r=>`<span class="badge ok" style="margin-left:4px">${esc(r)}</span>`).join('') || '-'}</td>
+      <td>${u.is_active ? '<span class="status success">فعال</span>' : '<span class="status error">غیرفعال</span>'}</td>
+      <td class="mono">${esc(u.created_at)}</td>
+      <td>
+        ${canEdit ? `<button class="btn btn-ghost btn-sm" onclick="openUserModal(${u.id})">✏️ ویرایش</button>` : ''}
+        ${canDel ? `<button class="btn btn-danger btn-sm" onclick="deleteUser(${u.id})">🗑 حذف</button>` : ''}
+      </td>
+    </tr>
+  `).join('');
+}
+
+function renderRoles() {
+  const tb = document.getElementById('rolesBody');
+  if (!tb) return;
+  const canEdit = myPerms.includes('roles.edit');
+  const canDel = myPerms.includes('roles.delete');
+  tb.innerHTML = allRoles.map(r => `
+    <tr>
+      <td>${r.id}</td>
+      <td><b>${esc(r.name)}</b></td>
+      <td>${esc(r.description || '-')}</td>
+      <td><span class="badge ok">${(r.permissions||[]).length} دسترسی</span></td>
+      <td style="max-width:340px;font-size:11px;color:var(--muted)">${(r.permissions||[]).map(p=>`<code style="background:var(--bg2);padding:2px 6px;border-radius:4px;margin:2px;display:inline-block">${esc(p)}</code>`).join('')}</td>
+      <td>
+        ${canEdit ? `<button class="btn btn-ghost btn-sm" onclick="openRoleModal(${r.id})">✏️ دسترسی‌ها</button>` : ''}
+        ${canDel && r.name !== 'admin' ? `<button class="btn btn-danger btn-sm" onclick="deleteRole(${r.id})">🗑 حذف</button>` : ''}
+      </td>
+    </tr>
+  `).join('');
+}
+
+function openUserModal(uid=null) {
+  document.getElementById('userModalErr').innerHTML = '';
+  const u = uid ? allUsers.find(x=>x.id===uid) : null;
+  document.getElementById('editUserId').value = uid || '';
+  document.getElementById('userModalTitle').textContent = u ? `ویرایش کاربر: ${u.username}` : 'افزودن کاربر جدید';
+  document.getElementById('usernameFieldWrap').style.display = u ? 'none' : 'block';
+  document.getElementById('uUsername').value = u ? u.username : '';
+  document.getElementById('uPassword').value = '';
+  document.getElementById('pwdLabel').textContent = u ? 'رمز عبور جدید (خالی بگذارید اگر تغییر نمی‌کند)' : 'رمز عبور';
+  document.getElementById('activeWrap').style.display = u ? 'block' : 'none';
+  document.getElementById('uActive').checked = u ? !!u.is_active : true;
+
+  const selected = new Set(u ? u.roles : []);
+  document.getElementById('userRolesList').innerHTML = allRoles.map(r => `
+    <label class="perm-item">
+      <input type="checkbox" class="uRoleChk" value="${esc(r.name)}" ${selected.has(r.name)?'checked':''}>
+      <span><b>${esc(r.name)}</b><br><small style="color:var(--muted)">${esc(r.description||'')}</small></span>
+    </label>
+  `).join('');
+  document.getElementById('userModal').classList.add('open');
+}
+
+async function saveUser() {
+  const uid = document.getElementById('editUserId').value;
+  const roles = [...document.querySelectorAll('.uRoleChk:checked')].map(c=>c.value);
+  const password = document.getElementById('uPassword').value;
+  let res;
+  if (uid) {
+    const body = { roles, is_active: document.getElementById('uActive').checked };
+    if (password) body.password = password;
+    res = await fetch('/api/admin/users/' + uid, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  } else {
+    const username = document.getElementById('uUsername').value.trim();
+    res = await fetch('/api/admin/users', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username, password, roles}) });
+  }
+  const data = await res.json();
+  if (!res.ok) {
+    document.getElementById('userModalErr').innerHTML = `<div class="alert alert-error">${esc(data.error||'خطا')}</div>`;
+    return;
+  }
+  closeModal('userModal');
+  loadAll();
+}
+
+async function deleteUser(uid) {
+  if (!confirm('آیا از حذف این کاربر مطمئن هستید؟')) return;
+  const res = await fetch('/api/admin/users/' + uid, {method:'DELETE'});
+  const data = await res.json();
+  if (!res.ok) alert(data.error || 'خطا'); else loadAll();
+}
+
+function onPermCheckboxChange(chk) {
+  if (!chk.checked) return;
+  const val = chk.value;
+  const parts = val.split('.');
+  if (parts.length === 2 && parts[1] !== 'view' && ['web','telegram','x','users','roles'].includes(parts[0])) {
+    const viewChk = document.querySelector(`.rPermChk[value="${parts[0]}.view"]`);
+    if (viewChk) viewChk.checked = true;
+  }
+  if (val.startsWith('users.') || val.startsWith('roles.')) {
+    const admChk = document.querySelector('.rPermChk[value="admin.access"]');
+    if (admChk) admChk.checked = true;
+  }
+}
+
+function openRoleModal(rid=null) {
+  document.getElementById('roleModalErr').innerHTML = '';
+  const r = rid ? allRoles.find(x=>x.id===rid) : null;
+  document.getElementById('editRoleId').value = rid || '';
+  document.getElementById('roleModalTitle').textContent = r ? `ویرایش نقش و دسترسی‌ها: ${r.name}` : 'تعریف نقش جدید';
+  document.getElementById('roleNameWrap').style.display = r ? 'none' : 'block';
+  document.getElementById('rName').value = r ? r.name : '';
+  document.getElementById('rDesc').value = r ? (r.description||'') : '';
+
+  const selected = new Set(r ? r.permissions : []);
+  const byCat = {};
+  allPerms.forEach(p => { (byCat[p.category] = byCat[p.category] || []).push(p); });
+  let html = '';
+  for (const [cat, list] of Object.entries(byCat)) {
+    html += `<div class="perm-cat">📂 ${esc(cat)}</div><div class="perm-grid">`;
+    html += list.map(p => `
+      <label class="perm-item">
+        <input type="checkbox" class="rPermChk" value="${esc(p.name)}" onchange="onPermCheckboxChange(this)" ${selected.has(p.name)?'checked':''}>
+        <span><b>${esc(p.description)}</b><br><small class="mono" style="color:var(--muted)">${esc(p.name)}</small></span>
+      </label>
+    `).join('');
+    html += `</div>`;
+  }
+  document.getElementById('rolePermsWrap').innerHTML = html;
+  document.getElementById('roleModal').classList.add('open');
+}
+
+function toggleAllPerms(state) {
+  document.querySelectorAll('.rPermChk').forEach(c => c.checked = state);
+}
+
+async function saveRole() {
+  const rid = document.getElementById('editRoleId').value;
+  const permissions = [...document.querySelectorAll('.rPermChk:checked')].map(c=>c.value);
+  const description = document.getElementById('rDesc').value.trim();
+  let res;
+  if (rid) {
+    res = await fetch('/api/admin/roles/' + rid, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({description, permissions}) });
+  } else {
+    const name = document.getElementById('rName').value.trim();
+    res = await fetch('/api/admin/roles', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name, description, permissions}) });
+  }
+  const data = await res.json();
+  if (!res.ok) {
+    document.getElementById('roleModalErr').innerHTML = `<div class="alert alert-error">${esc(data.error||'خطا')}</div>`;
+    return;
+  }
+  closeModal('roleModal');
+  loadAll();
+}
+
+async function deleteRole(rid) {
+  if (!confirm('آیا از حذف این نقش مطمئن هستید؟')) return;
+  const res = await fetch('/api/admin/roles/' + rid, {method:'DELETE'});
+  const data = await res.json();
+  if (!res.ok) alert(data.error || 'خطا'); else loadAll();
+}
+
+loadAll();
+</script>
+{% endblock %}

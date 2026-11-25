@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ورود به سامانه | پایشگر</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="login-wrap" style="min-height:100vh">
+  <div class="login-card">
+    <div class="logo-icon">📡</div>
+    <h2 style="text-align:center;font-size:24px;font-weight:900">پایشگر</h2>
+    <p style="text-align:center;color:var(--muted);font-size:13px;margin:6px 0 22px">سامانه یکپارچه خزش و آرشیو وب، تلگرام و ایکس — لطفاً وارد شوید</p>
+
+    {% if error %}
+      <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" action="/login">
+      <input type="hidden" name="next" value="{{ next_val or '' }}">
+      <input type="hidden" name="captcha_token" id="captchaToken" value="{{ captcha_token }}">
+
+      <div class="field">
+        <label>نام کاربری</label>
+        <input type="text" name="username" value="{{ username_val or '' }}" required autofocus autocomplete="username" placeholder="نام کاربری را وارد کنید" dir="ltr" style="text-align:left">
+      </div>
+
+      <div class="field">
+        <label>رمز عبور</label>
+        <input type="password" name="password" required autocomplete="current-password" placeholder="••••••••" dir="ltr" style="text-align:left">
+      </div>
+
+      <div class="field">
+        <label>کد امنیتی (کپچا) — ۴ رقم تصویر را وارد کنید</label>
+        <div class="captcha-box" style="direction:ltr;justify-content:space-between">
+          <img id="captchaImg" src="{{ captcha_svg }}" alt="کد امنیتی" style="height:48px;width:150px;border-radius:8px;border:1px solid var(--border);flex-shrink:0;cursor:pointer" onclick="refreshCaptcha()" title="کلیک برای تغییر کد">
+          <input type="text" name="captcha" id="captchaInput" required inputmode="numeric" maxlength="6" autocomplete="off" placeholder="کد ۴ رقمی" dir="ltr" style="flex:1;text-align:center;font-size:18px;font-weight:800;letter-spacing:4px">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="refreshCaptcha()" title="دریافت کد جدید">🔄</button>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-block" style="margin-top:6px">🔑 ورود به سامانه</button>
+    </form>
+  </div>
+</div>
+
+<script>
+sessionStorage.removeItem('payeshgar_at');
+async function refreshCaptcha() {
+  try {
+    const res = await fetch('/api/captcha', { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    document.getElementById('captchaImg').src = data.svg;
+    document.getElementById('captchaToken').value = data.token;
+    const inp = document.getElementById('captchaInput');
+    inp.value = '';
+    inp.focus();
+  } catch (e) {}
+}
+</script>
+</body>
+</html>

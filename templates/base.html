@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}پایشگر{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+<script>
+(function() {
+  const serverToken = {{ auth_token|tojson }};
+  if (serverToken) {
+    sessionStorage.setItem('payeshgar_at', serverToken);
+  }
+  try {
+    const u = new URL(window.location.href);
+    if (u.searchParams.has('_at')) {
+      sessionStorage.setItem('payeshgar_at', u.searchParams.get('_at'));
+      if (document.cookie.includes('pg_ck=1')) {
+        u.searchParams.delete('_at');
+        window.history.replaceState({}, '', u.pathname + (u.search ? u.search : '') + u.hash);
+      }
+    }
+  } catch (e) {}
+
+  const origFetch = window.fetch.bind(window);
+  window.fetch = function(input, init) {
+    const tok = sessionStorage.getItem('payeshgar_at');
+    if (tok) {
+      init = init || {};
+      const headers = new Headers(init.headers || {});
+      if (!headers.has('X-Auth-Token')) {
+        headers.set('X-Auth-Token', tok);
+      }
+      init.headers = headers;
+    }
+    return origFetch(input, init);
+  };
+
+  window.payeshgarNav = function(path) {
+    const tok = sessionStorage.getItem('payeshgar_at');
+    if (tok && path.startsWith('/') && !path.startsWith('/logout')) {
+      const sep = path.includes('?') ? '&' : '?';
+      window.location.href = path + sep + '_at=' + encodeURIComponent(tok);
+    } else {
+      window.location.href = path;
+    }
+  };
+
+  document.addEventListener('click', function(e) {
+    const a = e.target.closest('a[href]');
+    if (!a) return;
+    const href = a.getAttribute('href') || '';
+    if (href === '/logout') {
+      sessionStorage.removeItem('payeshgar_at');
+      return;
+    }
+    if (href.startsWith('/') && !href.startsWith('//') && !a.hasAttribute('target')) {
+      const tok = sessionStorage.getItem('payeshgar_at');
+      if (tok && !href.includes('_at=')) {
+        e.preventDefault();
+        window.payeshgarNav(href);
+      }
+    }
+  });
+})();
+</script>
+</head>
+<body>
+<header class="header">
+  <div class="header-inner">
+    <a href="/" class="logo" style="text-decoration:none;color:inherit">
+      <span class="logo-icon">📡</span>
+      <span>پایشگر<small>Payeshgar • سامانه یکپارچه خزش و آرشیو</small></span>
+    </a>
+    <nav class="nav">
+      {% if user %}
+        <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">🏠 داشبورد</a>
+        {% if 'web.view' in perms %}
+        <a href="/web/">🌐 وب</a>
+        {% endif %}
+        {% if 'telegram.view' in perms %}
+        <a href="/telegram/">✈️ تلگرام</a>
+        {% endif %}
+        {% if 'x.view' in perms %}
+        <a href="/x/">𝕏 ایکس</a>
+        {% endif %}
+        {% if is_admin %}
+        <a href="/workspaces" class="{% if request.url.path == '/workspaces' %}active{% endif %}">👁️ محیط کاربران</a>
+        {% endif %}
+        {% if 'admin.access' in perms %}
+        <a href="/admin" class="{% if request.url.path == '/admin' %}active{% endif %}">⚙️ مدیریت ACL</a>
+        {% endif %}
+        <span class="user-chip"><span class="avatar">{{ user.username[0]|upper }}</span> {{ user.username }}</span>
+        <a href="/logout">🚪 خروج</a>
+      {% endif %}
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="footer">
+  پایشگر
+</footer>
+{% block scripts %}{% endblock %}
+</body>
+</html>
