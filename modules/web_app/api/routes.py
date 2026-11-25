@@ -36,15 +36,15 @@ def to_persian_number(value: Any) -> str:
 
 
 def _get_db(request: Request) -> DatabaseManager:
-    return request.app.state.db
+    return getattr(request.state, "ws_db", None) or request.app.state.db
 
 
 def _get_sync_manager(request: Request) -> SyncManager:
-    return request.app.state.sync_manager
+    return getattr(request.state, "ws_sync_manager", None) or request.app.state.sync_manager
 
 
 def _get_scheduler(request: Request) -> SiteSchedulerService:
-    return request.app.state.scheduler
+    return getattr(request.state, "ws_scheduler", None) or request.app.state.scheduler
 
 
 def _enrich_site(site: Dict[str, Any], tz_name: str) -> Dict[str, Any]:

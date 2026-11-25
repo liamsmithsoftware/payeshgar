@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% block title %}پایشگر | مدیریت محیط کاربری کاربران{% endblock %}
+{% block content %}
+<div class="panel" style="margin-bottom:20px">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+    <div>
+      <h2 style="margin-bottom:6px">👁️ مدیریت محیط کاربری کاربران <span class="badge warn" style="vertical-align:middle;margin-right:6px">ویژه ادمین</span></h2>
+      <p class="sub" style="margin-bottom:0">
+        در این بخش می‌توانید هر کاربر را به‌صورت مجزا انتخاب کرده، آمار محیط اختصاصی وب، تلگرام و ایکس او را ببینید، مستقیماً از داده‌هایش خروجی بگیرید یا وارد محیط او شوید و هرگونه ویرایش، افزودن منبع، همگام‌سازی یا بازیابی بکاپ را انجام دهید.
+      </p>
+    </div>
+    <button class="btn ghost" onclick="loadUserWorkspaces()">🔄 بروزرسانی آمار</button>
+  </div>
+
+  <div class="stats-row" id="globalSummary" style="margin-top:18px;margin-bottom:18px">
+    <div class="stat-box"><div class="num" id="sumUsers">-</div><div class="lbl">تعداد کل کاربران</div></div>
+    <div class="stat-box"><div class="num" id="sumSources">-</div><div class="lbl">مجموع منابع ثبت‌شده همه کاربران</div></div>
+    <div class="stat-box"><div class="num" id="sumPosts">-</div><div class="lbl">مجموع مطالب آرشیوشده همه کاربران</div></div>
+  </div>
+
+  <div class="row" style="align-items:flex-end">
+    <div class="col">
+      <label>انتخاب مستقیم کاربر</label>
+      <select id="userPicker" onchange="renderWorkspaces()">
+        <option value="all">نمایش همه کاربران</option>
+      </select>
+    </div>
+    <div class="col">
+      <label>جستجوی سریع نام کاربری یا نقش</label>
+      <input type="text" id="userSearch" placeholder="مثلاً admin یا operator..." oninput="renderWorkspaces()">
+    </div>
+  </div>
+</div>
+
+<div id="workspacesContainer">
+  <div class="panel" style="text-align:center;color:var(--muted)">در حال بارگذاری محیط کاربری کاربران...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let ALL_USERS_WS = [];
+
+function escHtml(str) {
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function formatBytes(bytes) {
+  const n = Number(bytes || 0);
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / (1024 * 1024)).toFixed(2) + ' MB';
+}
+
+function downloadWorkspaceFile(mod, subPath, uid) {
+  const tok = sessionStorage.getItem('payeshgar_at') || '';
+  let url = '/' + mod + '/api/' + subPath + '?as_user=' + encodeURIComponent(String(uid));
+  if (tok) {
+    url += '&_at=' + encodeURIComponent(tok);
+  }
+  const a = document.createElement('a');
+  a.href = url;
+  a.setAttribute('download', '');
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function openUserModule(mod, uid) {
+  window.payeshgarNav('/' + mod + '/?as_user=' + encodeURIComponent(String(uid)));
+}
+
+function renderEnvBox(mod, title, icon, badgeClass, stats, uid, username, sourceLabel) {
+  const latest = stats.latest_post_utc ? escHtml(stats.latest_post_utc.replace('T', ' ').slice(0, 19)) : 'بدون مطلب';
+  return `
+    <div class="ws-env-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px">
+          <span class="ws-mod-icon ${badgeClass}">${icon}</span>
+          <span>${title}</span>
+        </div>
+        <span class="badge" style="direction:ltr">${formatBytes(stats.db_size_bytes)}</span>
+      </div>
+
+      <div class="ws-mini-stats">
+        <div>
+          <span class="ws-num">${stats.total_sources}</span>
+          <span class="ws-lbl">${sourceLabel} (${stats.active_sources} فعال)</span>
+        </div>
+        <div>
+          <span class="ws-num">${stats.total_posts}</span>
+          <span class="ws-lbl">مطالب آرشیوشده</span>
+        </div>
+      </div>
+
+      <div style="font-size:11.5px;color:var(--muted);margin:8px 0 12px">
+        آخرین مطلب: <span style="direction:ltr;display:inline-block">${latest}</span>
+      </div>
+
+      <button class="btn primary" style="width:100%;justify-content:center;margin-bottom:8px"
+              onclick="openUserModule('${mod}', ${uid})">
+        ✏️ ورود و ویرایش محیط ${title} «${escHtml(username)}»
+      </button>
+
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn sm ghost" style="flex:1;justify-content:center"
+                onclick="downloadWorkspaceFile('${mod}', 'exports/excel', ${uid})"
+                title="دانلود فایل اکسل محیط ${title} کاربر ${escHtml(username)}">
+          📊 اکسل
+        </button>
+        <button class="btn sm ghost" style="flex:1;justify-content:center"
+                onclick="downloadWorkspaceFile('${mod}', 'exports/sqlite', ${uid})"
+                title="دانلود پایگاه داده SQLite محیط ${title} کاربر ${escHtml(username)}">
+          🗄️ SQLite
+        </button>
+        <button class="btn sm ghost" style="flex:1;justify-content:center"
+                onclick="downloadWorkspaceFile('${mod}', 'backup/export', ${uid})"
+                title="دانلود پشتیبان کامل JSON محیط ${title} کاربر ${escHtml(username)}">
+          📦 پشتیبان JSON
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function renderWorkspaces() {
+  const container = document.getElementById('workspacesContainer');
+  const selectedId = document.getElementById('userPicker').value;
+  const q = (document.getElementById('userSearch').value || '').trim().toLowerCase();
+
+  const filtered = ALL_USERS_WS.filter(u => {
+    if (selectedId !== 'all' && String(u.id) !== String(selectedId)) return false;
+    if (!q) return true;
+    const roleNames = (u.roles || []).join(' ').toLowerCase();
+    return u.username.toLowerCase().includes(q) || roleNames.includes(q) || String(u.id) === q;
+  });
+
+  if (!filtered.length) {
+    container.innerHTML = '<div class="panel" style="text-align:center;color:var(--muted)">کاربری مطابق فیلتر انتخابی یافت نشد.</div>';
+    return;
+  }
+
+  container.innerHTML = filtered.map(u => {
+    const rolesBadges = (u.roles || []).length
+      ? u.roles.map(r => `<span class="badge ok">🛡️ ${escHtml(r)}</span>`).join(' ')
+      : '<span class="badge warn">بدون نقش</span>';
+    const statusBadge = u.is_active
+      ? '<span class="badge ok">فعال</span>'
+      : '<span class="badge err">غیرفعال</span>';
+    const ws = u.workspace;
+
+    return `
+      <div class="panel" style="margin-bottom:20px" data-user-card="${u.id}">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px solid var(--border);margin-bottom:16px">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span class="avatar" style="width:34px;height:34px;font-size:15px">${escHtml((u.username[0] || 'U').toUpperCase())}</span>
+            <div>
+              <div style="font-size:16px;font-weight:800">
+                کاربر: <span style="color:#60a5fa">${escHtml(u.username)}</span>
+                <small style="color:var(--muted);font-weight:400">(شناسه #${u.id})</small>
+              </div>
+              <div style="font-size:12px;color:var(--muted)">ایجاد شده در: ${escHtml(u.created_at || '')}</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            ${statusBadge}
+            ${rolesBadges}
+            <span class="badge">کل منابع: ${ws.totals.sources}</span>
+            <span class="badge">کل مطالب: ${ws.totals.posts}</span>
+          </div>
+        </div>
+
+        <div class="ws-env-grid">
+          ${renderEnvBox('web', 'وب', '🌐', 'web', ws.web, u.id, u.username, 'سایت‌ها')}
+          ${renderEnvBox('telegram', 'تلگرام', '✈️', 'telegram', ws.telegram, u.id, u.username, 'کانال‌ها')}
+          ${renderEnvBox('x', 'ایکس', '𝕏', 'x', ws.x, u.id, u.username, 'حساب‌ها')}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function loadUserWorkspaces() {
+  const container = document.getElementById('workspacesContainer');
+  try {
+    const res = await fetch('/api/workspaces/users');
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      container.innerHTML = `<div class="alert error">${escHtml(err.error || 'خطا در دریافت اطلاعات محیط کاربران')}</div>`;
+      return;
+    }
+    ALL_USERS_WS = await res.json();
+
+    // Update global summary KPIs
+    let totalSources = 0;
+    let totalPosts = 0;
+    ALL_USERS_WS.forEach(u => {
+      totalSources += (u.workspace?.totals?.sources || 0);
+      totalPosts += (u.workspace?.totals?.posts || 0);
+    });
+    document.getElementById('sumUsers').textContent = ALL_USERS_WS.length;
+    document.getElementById('sumSources').textContent = totalSources;
+    document.getElementById('sumPosts').textContent = totalPosts;
+
+    // Populate user dropdown preserving selection
+    const picker = document.getElementById('userPicker');
+    const prev = picker.value || 'all';
+    picker.innerHTML = '<option value="all">همه کاربران (' + ALL_USERS_WS.length + ' نفر)</option>' +
+      ALL_USERS_WS.map(u => `<option value="${u.id}">${escHtml(u.username)} — منابع: ${u.workspace.totals.sources} | مطالب: ${u.workspace.totals.posts}</option>`).join('');
+    if ([...picker.options].some(o => o.value === prev)) {
+      picker.value = prev;
+    }
+
+    renderWorkspaces();
+  } catch (e) {
+    container.innerHTML = '<div class="alert error">خطا در ارتباط با سرور پایشگر.</div>';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', loadUserWorkspaces);
+</script>
+{% endblock %}

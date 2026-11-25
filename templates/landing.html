@@ -13,7 +13,7 @@
   {% endif %}
 </div>
 
-{% set has_any_section = ('web.view' in perms) or ('telegram.view' in perms) or ('x.view' in perms) or ('admin.access' in perms) %}
+{% set has_any_section = ('web.view' in perms) or ('telegram.view' in perms) or ('x.view' in perms) or ('admin.access' in perms) or is_admin %}
 
 {% if not has_any_section %}
   <div class="panel" style="text-align:center;max-width:560px;margin:28px auto">
@@ -71,6 +71,20 @@
         {% if 'x.delete' in perms %}<span class="badge ok">🗑 حذف/پاک‌سازی</span>{% endif %}
       </div>
       <span class="go">ورود به سامانه کامل ایکس ←</span>
+    </div>
+    {% endif %}
+
+    {% if is_admin %}
+    <div class="env-card" onclick="window.payeshgarNav('/workspaces')">
+      <div class="env-icon" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">👁️</div>
+      <h3>محیط کاربری کاربران <small style="color:var(--muted);font-size:12px">Admin User Workspaces</small></h3>
+      <p>ویژه ادمین: انتخاب هر کاربر و مشاهده مجزای محیط وب، تلگرام و ایکس همان کاربر، دریافت خروجی‌های مستقیم (اکسل، SQLite، JSON) و ویرایش کامل اطلاعات محیط او.</p>
+      <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
+        <span class="badge ok">👤 تفکیک کامل هر کاربر</span>
+        <span class="badge ok">📊 خروجی مستقیم اکسل / SQLite</span>
+        <span class="badge ok">✏️ ورود و ویرایش کامل</span>
+      </div>
+      <span class="go">ورود به مدیریت محیط کاربران ←</span>
     </div>
     {% endif %}
 

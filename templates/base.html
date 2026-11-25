@@ -84,6 +84,9 @@
         {% if 'x.view' in perms %}
         <a href="/x/">𝕏 ایکس</a>
         {% endif %}
+        {% if is_admin %}
+        <a href="/workspaces" class="{% if request.url.path == '/workspaces' %}active{% endif %}">👁️ محیط کاربران</a>
+        {% endif %}
         {% if 'admin.access' in perms %}
         <a href="/admin" class="{% if request.url.path == '/admin' %}active{% endif %}">⚙️ مدیریت ACL</a>
         {% endif %}

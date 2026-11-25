@@ -5,9 +5,9 @@ import json
 import os
 import re
 import sqlite3
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from fastapi import FastAPI, Form, Request
@@ -21,6 +21,7 @@ from modules.web_app.main import create_app as create_web_app
 from modules.x_app.main import create_app as create_x_app
 from payeshgar.auth_db import PERM_LABELS, AuthDB, required_permission_for_subapp
 from payeshgar.captcha import CaptchaService
+from payeshgar.workspaces import WorkspaceRegistry
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = ROOT_DIR / "templates"
@@ -116,24 +117,71 @@ def build_subapp_acl_css(mod: str, perms: Set[str]) -> str:
     return "\n".join(rules)
 
 
-def build_payeshgar_topbar_html(mod: str, username: str, perms: Set[str]) -> str:
+def build_payeshgar_topbar_html(
+    mod: str,
+    username: str,
+    perms: Set[str],
+    *,
+    is_admin: bool = False,
+    target_user: Optional[Dict[str, Any]] = None,
+    all_users: Optional[List[Dict[str, Any]]] = None,
+) -> str:
     esc_user = html_lib.escape(username)
     initial = html_lib.escape((username[:1] or "U").upper())
+    viewing_other = target_user is not None
 
     links = [
         '<a href="/" onclick="window.payeshgarNav(\'/\');return false;" class="pg-nav-link">🏠 داشبورد پایشگر</a>'
     ]
     if "web.view" in perms:
-        cls = "pg-nav-link active" if mod == "web" else "pg-nav-link"
+        cls = "pg-nav-link active" if (mod == "web" and not viewing_other) else "pg-nav-link"
         links.append(f'<a href="/web/" onclick="window.payeshgarNav(\'/web/\');return false;" class="{cls}">🌐 محیط وب</a>')
     if "telegram.view" in perms:
-        cls = "pg-nav-link active" if mod == "telegram" else "pg-nav-link"
+        cls = "pg-nav-link active" if (mod == "telegram" and not viewing_other) else "pg-nav-link"
         links.append(f'<a href="/telegram/" onclick="window.payeshgarNav(\'/telegram/\');return false;" class="{cls}">✈️ محیط تلگرام</a>')
     if "x.view" in perms:
-        cls = "pg-nav-link active" if mod == "x" else "pg-nav-link"
+        cls = "pg-nav-link active" if (mod == "x" and not viewing_other) else "pg-nav-link"
         links.append(f'<a href="/x/" onclick="window.payeshgarNav(\'/x/\');return false;" class="{cls}">𝕏 محیط ایکس</a>')
+    if is_admin:
+        cls = "pg-nav-link active" if viewing_other else "pg-nav-link"
+        links.append(f'<a href="/workspaces" onclick="window.payeshgarNav(\'/workspaces\');return false;" class="{cls}">👁️ محیط کاربران</a>')
     if "admin.access" in perms:
         links.append('<a href="/admin" onclick="window.payeshgarNav(\'/admin\');return false;" class="pg-nav-link">⚙️ مدیریت ACL</a>')
+
+    inspector_banner = ""
+    if is_admin and target_user is not None:
+        tid = int(target_user["id"])
+        tname = html_lib.escape(target_user["username"])
+        options_html = ""
+        for u in all_users or []:
+            uid = int(u["id"])
+            uname = html_lib.escape(u["username"])
+            sel = "selected" if uid == tid else ""
+            options_html += f'<option value="{uid}" {sel}>{uname} (#{uid})</option>'
+
+        w_cls = "pg-ws-pill active" if mod == "web" else "pg-ws-pill"
+        t_cls = "pg-ws-pill active" if mod == "telegram" else "pg-ws-pill"
+        x_cls = "pg-ws-pill active" if mod == "x" else "pg-ws-pill"
+
+        inspector_banner = f"""
+<div class="pg-inspector-bar" role="region" aria-label="مدیریت محیط کاربری انتخاب‌شده">
+    <div class="pg-topbar-inner">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span class="pg-inspector-badge">👁️ حالت مدیریت ادمین</span>
+            <span>در حال مشاهده، خروجی‌گیری و ویرایش محیط کاربری: <strong style="color:#fde68a">{tname}</strong></span>
+            <select onchange="window.payeshgarNav('/{mod}/?as_user=' + this.value)" class="pg-ws-select" title="تغییر سریع کاربر">
+                {options_html}
+            </select>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <a href="/web/?as_user={tid}" onclick="window.payeshgarNav('/web/?as_user={tid}');return false;" class="{w_cls}">🌐 وب این کاربر</a>
+            <a href="/telegram/?as_user={tid}" onclick="window.payeshgarNav('/telegram/?as_user={tid}');return false;" class="{t_cls}">✈️ تلگرام این کاربر</a>
+            <a href="/x/?as_user={tid}" onclick="window.payeshgarNav('/x/?as_user={tid}');return false;" class="{x_cls}">𝕏 ایکس این کاربر</a>
+            <a href="/workspaces" onclick="window.payeshgarNav('/workspaces');return false;" class="pg-ws-pill back">👥 لیست همه کاربران</a>
+        </div>
+    </div>
+</div>
+"""
 
     return f"""
 <style>
@@ -238,6 +286,59 @@ def build_payeshgar_topbar_html(mod: str, username: str, perms: Set[str]) -> str
     background: rgba(239, 68, 68, 0.22);
     text-decoration: none;
 }}
+.pg-inspector-bar {{
+    background: linear-gradient(90deg, #312e81, #4c1d95);
+    color: #f8fafc;
+    border-bottom: 1px solid #6d28d9;
+    font-family: Vazirmatn, Tahoma, sans-serif;
+    font-size: 12.5px;
+    direction: rtl;
+    position: relative;
+    z-index: 998;
+}}
+.pg-inspector-badge {{
+    background: rgba(245, 158, 11, 0.2);
+    border: 1px solid rgba(245, 158, 11, 0.55);
+    color: #fde68a;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-weight: 800;
+    font-size: 11.5px;
+}}
+.pg-ws-select {{
+    background: #1e1b4b;
+    color: #fff;
+    border: 1px solid #6366f1;
+    border-radius: 7px;
+    padding: 3px 8px;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}}
+.pg-ws-pill {{
+    color: #e0e7ff;
+    text-decoration: none;
+    padding: 4px 10px;
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    font-weight: 700;
+    font-size: 12px;
+}}
+.pg-ws-pill:hover {{
+    background: rgba(255, 255, 255, 0.18);
+    color: #fff;
+    text-decoration: none;
+}}
+.pg-ws-pill.active {{
+    background: #f59e0b;
+    border-color: #f59e0b;
+    color: #111827;
+}}
+.pg-ws-pill.back {{
+    background: rgba(15, 23, 42, 0.55);
+    border-color: #94a3b8;
+}}
 </style>
 <div class="pg-topbar" role="navigation" aria-label="نوار ناوبری پایشگر">
     <div class="pg-topbar-inner">
@@ -256,19 +357,27 @@ def build_payeshgar_topbar_html(mod: str, username: str, perms: Set[str]) -> str
         </div>
     </div>
 </div>
+{inspector_banner}
 """
 
 
-def build_subapp_bridge_head(mod: str, auth_token: str, perms: Set[str]) -> str:
+def build_subapp_bridge_head(
+    mod: str,
+    auth_token: str,
+    perms: Set[str],
+    target_user_id: Optional[int] = None,
+) -> str:
     prefix = f"/{mod}"
     acl_css = build_subapp_acl_css(mod, perms)
     token_json = json.dumps(auth_token)
     prefix_json = json.dumps(prefix)
+    target_uid_json = json.dumps(target_user_id)
     return f"""
 <script>
 (function() {{
     const MODULE_PREFIX = {prefix_json};
     const SERVER_TOKEN = {token_json};
+    const TARGET_USER_ID = {target_uid_json};
     if (SERVER_TOKEN) {{
         sessionStorage.setItem('payeshgar_at', SERVER_TOKEN);
     }}
@@ -293,18 +402,21 @@ def build_subapp_bridge_head(mod: str, auth_token: str, perms: Set[str]) -> str:
         }}
     }};
 
-    // Rewrite root-relative /api/... calls to /{{mod}}/api/... and attach X-Auth-Token
+    // Rewrite root-relative /api/... calls to /{{mod}}/api/... and attach X-Auth-Token + X-Workspace-User
     const origFetch = window.fetch.bind(window);
     window.fetch = function(input, init) {{
         if (typeof input === 'string' && input.startsWith('/api/')) {{
             input = MODULE_PREFIX + input;
         }}
         const tok = sessionStorage.getItem('payeshgar_at');
-        if (tok) {{
+        if (tok || TARGET_USER_ID !== null) {{
             init = Object.assign({{}}, init);
             const headers = new Headers(init.headers || {{}});
-            if (!headers.has('X-Auth-Token')) {{
+            if (tok && !headers.has('X-Auth-Token')) {{
                 headers.set('X-Auth-Token', tok);
+            }}
+            if (TARGET_USER_ID !== null && !headers.has('X-Workspace-User')) {{
+                headers.set('X-Workspace-User', String(TARGET_USER_ID));
             }}
             init.headers = headers;
         }}
@@ -318,6 +430,9 @@ def build_subapp_bridge_head(mod: str, auth_token: str, perms: Set[str]) -> str:
             const rawHref = this.getAttribute('href') || '';
             if (rawHref.startsWith('/api/')) {{
                 let rewritten = MODULE_PREFIX + rawHref;
+                if (TARGET_USER_ID !== null && !rewritten.includes('as_user=')) {{
+                    rewritten += (rewritten.includes('?') ? '&' : '?') + 'as_user=' + encodeURIComponent(String(TARGET_USER_ID));
+                }}
                 const tok = sessionStorage.getItem('payeshgar_at');
                 if (tok && !rewritten.includes('_at=')) {{
                     rewritten += (rewritten.includes('?') ? '&' : '?') + '_at=' + encodeURIComponent(tok);
@@ -335,12 +450,29 @@ def build_subapp_bridge_head(mod: str, auth_token: str, perms: Set[str]) -> str:
 """
 
 
-def render_subapp_index(mod: str, template_file: Path, user: Dict[str, Any], perms: Set[str], auth_token: str) -> str:
+def render_subapp_index(
+    mod: str,
+    template_file: Path,
+    user: Dict[str, Any],
+    perms: Set[str],
+    auth_token: str,
+    *,
+    is_admin: bool = False,
+    target_user: Optional[Dict[str, Any]] = None,
+    all_users: Optional[List[Dict[str, Any]]] = None,
+) -> str:
     raw_html = template_file.read_text(encoding="utf-8")
-    # Prefix static assets to match mounted sub-application
     rewritten = raw_html.replace('href="/static/', f'href="/{mod}/static/').replace('src="/static/', f'src="/{mod}/static/')
-    bridge_head = build_subapp_bridge_head(mod, auth_token, perms)
-    topbar_html = build_payeshgar_topbar_html(mod, user["username"], perms)
+    target_uid = int(target_user["id"]) if target_user is not None else None
+    bridge_head = build_subapp_bridge_head(mod, auth_token, perms, target_user_id=target_uid)
+    topbar_html = build_payeshgar_topbar_html(
+        mod,
+        user["username"],
+        perms,
+        is_admin=is_admin,
+        target_user=target_user,
+        all_users=all_users,
+    )
 
     rewritten = rewritten.replace("</head>", f"{bridge_head}\n</head>", 1)
     rewritten = re.sub(r"(<body[^>]*>)", rf"\1\n{topbar_html}", rewritten, count=1)
@@ -350,6 +482,7 @@ def render_subapp_index(mod: str, template_file: Path, user: Dict[str, Any], per
 def create_payeshgar_app(
     *,
     users_db_path: Optional[Path] = None,
+    workspaces_root: Optional[Path] = None,
     web_db_path: Optional[Path] = None,
     telegram_db_path: Optional[Path] = None,
     x_db_path: Optional[Path] = None,
@@ -360,9 +493,25 @@ def create_payeshgar_app(
     captcha_service = CaptchaService(secret_key)
     auth_db = AuthDB(db_path=users_db_path)
 
-    web_subapp = create_web_app(db_path=web_db_path, enable_scheduler=enable_schedulers)
-    telegram_subapp = create_telegram_app(db_path=telegram_db_path, enable_scheduler=enable_schedulers)
-    x_subapp = create_x_app(db_path=x_db_path, enable_scheduler=enable_schedulers)
+    # Derive isolated workspaces_root cleanly (also handles test tmp_path passed via *_db_path)
+    resolved_ws_root = workspaces_root
+    if resolved_ws_root is None and web_db_path is not None:
+        resolved_ws_root = Path(web_db_path).resolve().parent.parent
+
+    workspaces = WorkspaceRegistry(
+        workspaces_root=resolved_ws_root,
+        enable_schedulers=enable_schedulers,
+    )
+
+    # Sub-apps act as stateless FastAPI routers + static file servers; DB/SyncManager/Scheduler
+    # are injected per-request from `workspaces.get_runtime(effective_user_id, mod)`.
+    default_web_rt = workspaces.get_runtime(1, "web")
+    default_tg_rt = workspaces.get_runtime(1, "telegram")
+    default_x_rt = workspaces.get_runtime(1, "x")
+
+    web_subapp = create_web_app(db_path=default_web_rt.db.db_path, enable_scheduler=False)
+    telegram_subapp = create_telegram_app(db_path=default_tg_rt.db.db_path, enable_scheduler=False)
+    x_subapp = create_x_app(db_path=default_x_rt.db.db_path, enable_scheduler=False)
 
     subapp_templates = {
         "web": ROOT_DIR / "modules" / "web_app" / "templates" / "index.html",
@@ -372,20 +521,22 @@ def create_payeshgar_app(
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
-        async with AsyncExitStack() as stack:
-            await stack.enter_async_context(web_subapp.router.lifespan_context(web_subapp))
-            await stack.enter_async_context(telegram_subapp.router.lifespan_context(telegram_subapp))
-            await stack.enter_async_context(x_subapp.router.lifespan_context(x_subapp))
+        existing_uids = [u["id"] for u in auth_db.list_users()]
+        workspaces.start(existing_uids)
+        try:
             yield
+        finally:
+            workspaces.stop_all()
 
     app = FastAPI(
         title="سامانه یکپارچه پایشگر (Payeshgar)",
-        version="2.0.0",
+        version="2.1.0",
         lifespan=lifespan,
     )
     app.state.auth_db = auth_db
     app.state.captcha = captcha_service
     app.state.auth_signer = auth_signer
+    app.state.workspaces = workspaces
     app.state.web_subapp = web_subapp
     app.state.telegram_subapp = telegram_subapp
     app.state.x_subapp = x_subapp
@@ -407,7 +558,6 @@ def create_payeshgar_app(
             return None
 
     def get_request_user(request: Request) -> tuple[Optional[Dict[str, Any]], bool]:
-        """Returns (user_dict, came_from_token_fallback)."""
         cookie_tok = request.cookies.get(COOKIE_NAME)
         uid = verify_auth_token(cookie_tok)
         from_fallback = False
@@ -421,7 +571,41 @@ def create_payeshgar_app(
         user = auth_db.get_user_by_id(uid)
         return user, from_fallback
 
-    # ---------- ACL Middleware for Mounted Sub-Apps (/web/*, /telegram/*, /x/*) ----------
+    def resolve_target_workspace_user(
+        request: Request,
+        caller: Dict[str, Any],
+    ) -> tuple[Optional[Dict[str, Any]], Optional[str], int]:
+        """
+        Determines which user's workspace this request operates on.
+        - Default: caller's own workspace.
+        - If `X-Workspace-User` header or `as_user` query param is specified:
+          ONLY Admin (`auth_db.is_admin(caller['id'])`) may access another user's workspace!
+        Returns `(target_user_dict, error_message, http_status)`.
+        """
+        raw_target = (
+            request.headers.get("X-Workspace-User")
+            or request.query_params.get("as_user")
+            or ""
+        ).strip()
+        if not raw_target:
+            return caller, None, 200
+
+        if not raw_target.isdigit():
+            return None, "شناسه کاربر هدف معتبر نیست.", 400
+
+        target_uid = int(raw_target)
+        if target_uid != int(caller["id"]) and not auth_db.is_admin(caller["id"]):
+            return None, "فقط ادمین سیستم مجاز به مشاهده، خروجی‌گیری و ویرایش محیط سایر کاربران است.", 403
+
+        if not auth_db.is_admin(caller["id"]) and target_uid == int(caller["id"]):
+            return caller, None, 200
+
+        target_user = auth_db.get_user_any_status(target_uid)
+        if not target_user:
+            return None, "کاربر مورد نظر یافت نشد.", 404
+        return target_user, None, 200
+
+    # ---------- ACL + Per-User Workspace Middleware for (/web/*, /telegram/*, /x/*) ----------
     @app.middleware("http")
     async def acl_subapp_guard(request: Request, call_next):
         path = request.url.path
@@ -434,7 +618,6 @@ def create_payeshgar_app(
                 break
 
         if matched_mod:
-            # Public static assets (CSS/JS) and healthcheck never require session cookies
             if sub_path.startswith("/static/") or sub_path == "/healthz":
                 return await call_next(request)
 
@@ -458,6 +641,19 @@ def create_payeshgar_app(
                         status_code=403,
                     )
                 return RedirectResponse(url="/", status_code=302)
+
+            target_user, ws_err, ws_status = resolve_target_workspace_user(request, user)
+            if ws_err or not target_user:
+                if is_api or sub_path.startswith("/api/"):
+                    return JSONResponse({"detail": ws_err or "خطای دسترسی به محیط کاربر"}, status_code=ws_status)
+                return RedirectResponse(url="/", status_code=302)
+
+            # Bind this request to the target user's isolated workspace!
+            rt = workspaces.get_runtime(target_user["id"], matched_mod)
+            request.state.ws_db = rt.db
+            request.state.ws_sync_manager = rt.sync_manager
+            request.state.ws_scheduler = rt.scheduler
+            request.state.ws_target_user = target_user
 
             response = await call_next(request)
             if from_fallback:
@@ -494,6 +690,7 @@ def create_payeshgar_app(
             return render_login(request)
         perms = auth_db.get_user_permissions(user["id"])
         roles = auth_db.get_user_roles(user["id"])
+        is_admin = auth_db.is_admin(user["id"])
         token = make_auth_token(user["id"])
         resp = templates.TemplateResponse(
             request,
@@ -502,6 +699,7 @@ def create_payeshgar_app(
                 "user": user,
                 "perms": perms,
                 "roles": roles,
+                "is_admin": is_admin,
                 "auth_token": token,
             },
         )
@@ -570,9 +768,51 @@ def create_payeshgar_app(
         return {
             "logged_in": True,
             "username": user["username"],
+            "is_admin": auth_db.is_admin(user["id"]),
             "roles": [r["name"] for r in roles],
             "permissions": sorted(perms),
         }
+
+    # ---------- Admin-Only Section: User Workspaces Inspector (/workspaces) ----------
+    @app.get("/workspaces", include_in_schema=False)
+    async def workspaces_page(request: Request) -> Response:
+        user, from_fallback = get_request_user(request)
+        if not user:
+            return RedirectResponse(url="/login?next=/workspaces", status_code=302)
+        if not auth_db.is_admin(user["id"]):
+            return RedirectResponse(url="/", status_code=302)
+        perms = auth_db.get_user_permissions(user["id"])
+        token = make_auth_token(user["id"])
+        resp = templates.TemplateResponse(
+            request,
+            "workspaces.html",
+            {
+                "user": user,
+                "perms": perms,
+                "is_admin": True,
+                "auth_token": token,
+            },
+        )
+        if from_fallback:
+            set_session_cookie(resp, request, token)
+        return resp
+
+    @app.get("/api/workspaces/users", include_in_schema=False)
+    async def api_workspaces_users(request: Request) -> Response:
+        user, _ = get_request_user(request)
+        if not user:
+            return JSONResponse({"error": "ابتدا وارد حساب کاربری شوید."}, status_code=401)
+        if not auth_db.is_admin(user["id"]):
+            return JSONResponse(
+                {"error": "فقط ادمین سیستم مجاز به مشاهده و مدیریت محیط کاربری کاربران است."},
+                status_code=403,
+            )
+        users = auth_db.list_users()
+        items = []
+        for u in users:
+            summary = workspaces.get_user_summary(u["id"])
+            items.append({**u, "workspace": summary})
+        return JSONResponse(items)
 
     # ---------- Admin ACL Panel & APIs ----------
     @app.get("/admin", include_in_schema=False)
@@ -590,6 +830,7 @@ def create_payeshgar_app(
             {
                 "user": user,
                 "perms": perms,
+                "is_admin": auth_db.is_admin(user["id"]),
                 "auth_token": token,
             },
         )
@@ -660,6 +901,7 @@ def create_payeshgar_app(
             return err
         if me and me["id"] == uid:
             return JSONResponse({"error": "نمی‌توانید حساب کاربری خودتان را حذف کنید."}, status_code=400)
+        workspaces.stop_user(uid)
         auth_db.delete_user(uid)
         return JSONResponse({"ok": True})
 
@@ -723,8 +965,30 @@ def create_payeshgar_app(
         perms = auth_db.get_user_permissions(user["id"])
         if f"{mod}.view" not in perms:
             return RedirectResponse(url="/", status_code=302)
+
+        is_admin = auth_db.is_admin(user["id"])
+        raw_as_user = (request.query_params.get("as_user") or "").strip()
+        inspector_target = None
+        all_users = None
+        if raw_as_user:
+            target_user, ws_err, _ = resolve_target_workspace_user(request, user)
+            if ws_err or not target_user:
+                return RedirectResponse(url="/", status_code=302)
+            if is_admin:
+                inspector_target = target_user
+                all_users = auth_db.list_users()
+
         token = make_auth_token(user["id"])
-        rendered = render_subapp_index(mod, subapp_templates[mod], user, perms, token)
+        rendered = render_subapp_index(
+            mod,
+            subapp_templates[mod],
+            user,
+            perms,
+            token,
+            is_admin=is_admin,
+            target_user=inspector_target,
+            all_users=all_users,
+        )
         return HTMLResponse(content=rendered, headers={"Cache-Control": "no-cache"})
 
     @app.get("/web", include_in_schema=False)
@@ -760,12 +1024,12 @@ def create_payeshgar_app(
         return {
             "status": "ok",
             "app": "payeshgar",
-            "version": "2.0.0",
+            "version": "2.1.0",
             "pid": os.getpid(),
             "schedulers": {
-                "web": web_subapp.state.scheduler.is_running,
-                "telegram": telegram_subapp.state.scheduler.is_running,
-                "x": x_subapp.state.scheduler.is_running,
+                "web": workspaces.get_runtime(1, "web").scheduler.is_running,
+                "telegram": workspaces.get_runtime(1, "telegram").scheduler.is_running,
+                "x": workspaces.get_runtime(1, "x").scheduler.is_running,
             },
         }
 

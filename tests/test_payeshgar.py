@@ -217,3 +217,143 @@ def test_granular_action_level_acl(tmp_path: Path):
         assert user_client.get("/telegram/api/overview").status_code == 403
         assert user_client.get("/x/api/overview").status_code == 403
         assert user_client.get("/admin", follow_redirects=False).status_code == 302
+
+
+def test_per_user_workspace_isolation_and_admin_only_workspaces_inspector(tmp_path: Path):
+    app = _make_test_app(tmp_path)
+
+    with TestClient(app) as admin_client, TestClient(app) as alice_client, TestClient(app) as bob_client:
+        _login(admin_client, app, "admin", "Admin@1234")
+
+        # Create a high-privilege non-admin role (even with admin.access & users.view, NOT the 'admin' role)
+        r_role = admin_client.post(
+            "/api/admin/roles",
+            json={
+                "name": "sub_manager",
+                "description": "مدیر میانی بدون نقش admin",
+                "permissions": [
+                    "admin.access",
+                    "users.view",
+                    "web.view",
+                    "web.sources",
+                    "web.crawl",
+                    "web.export",
+                    "web.settings",
+                    "web.delete",
+                    "telegram.view",
+                    "telegram.sources",
+                    "telegram.export",
+                    "x.view",
+                    "x.sources",
+                    "x.export",
+                ],
+            },
+        )
+        assert r_role.status_code == 200
+
+        r_alice = admin_client.post(
+            "/api/admin/users",
+            json={"username": "alice", "password": "Alice@1234", "roles": ["operator"]},
+        )
+        assert r_alice.status_code == 200
+        alice_id = r_alice.json()["id"]
+
+        r_bob = admin_client.post(
+            "/api/admin/users",
+            json={"username": "bob", "password": "Bob@1234", "roles": ["sub_manager"]},
+        )
+        assert r_bob.status_code == 200
+        bob_id = r_bob.json()["id"]
+
+        # 1. Alice logs in and adds sites/channels + seeds demo data in her own workspace
+        _login(alice_client, app, "alice", "Alice@1234")
+        assert alice_client.post("/web/api/sites", json={"site_input": "https://zoomit.ir", "fetch_now": False}).status_code in (200, 201)
+        assert alice_client.post("/web/api/demo/seed").status_code == 200
+        assert alice_client.post("/telegram/api/channels", json={"channel_input": "https://t.me/telegram", "fetch_now": False}).status_code in (200, 201)
+        assert alice_client.post("/x/api/channels", json={"channel_input": "https://x.com/nasa", "fetch_now": False}).status_code in (200, 201)
+
+        alice_web_ov = alice_client.get("/web/api/overview").json()["stats"]
+        assert alice_web_ov["total_sites"] >= 2
+        assert alice_web_ov["total_posts"] > 0
+
+        # 2. Bob logs in: his workspace is 100% isolated (0 sites, 0 posts, 0 channels)
+        _login(bob_client, app, "bob", "Bob@1234")
+        bob_web_ov = bob_client.get("/web/api/overview").json()["stats"]
+        bob_tg_ov = bob_client.get("/telegram/api/overview").json()["stats"]
+        bob_x_ov = bob_client.get("/x/api/overview").json()["stats"]
+        assert bob_web_ov["total_sites"] == 0
+        assert bob_web_ov["total_posts"] == 0
+        assert bob_tg_ov["total_channels"] == 0
+        assert bob_x_ov["total_channels"] == 0
+
+        # Bob adds his own distinct site; Alice and Admin do not see it in their own workspaces
+        assert bob_client.post("/web/api/sites", json={"site_input": "https://digiato.com", "fetch_now": False}).status_code in (200, 201)
+        assert admin_client.get("/web/api/overview").json()["stats"]["total_sites"] == 0
+
+        # 3. Strict Admin-only enforcement: neither Alice (operator) nor Bob (sub_manager with admin.access!)
+        # can see or access /workspaces, /api/workspaces/users, ?as_user=, or X-Workspace-User
+        for non_admin in (alice_client, bob_client):
+            dash_html = non_admin.get("/").text
+            assert "Admin User Workspaces" not in dash_html
+            assert 'href="/workspaces"' not in dash_html
+            assert non_admin.get("/workspaces", follow_redirects=False).status_code == 302
+            assert non_admin.get("/api/workspaces/users").status_code == 403
+            assert non_admin.get(f"/web/?as_user={alice_id}" if non_admin is bob_client else "/web/?as_user=1", follow_redirects=False).status_code == 302
+            assert non_admin.get("/web/api/overview", headers={"X-Workspace-User": "1"}).status_code == 403
+            assert non_admin.get(f"/web/api/exports/excel?as_user={alice_id}" if non_admin is bob_client else "/web/api/exports/excel?as_user=1").status_code == 403
+
+        # 4. Admin sees /workspaces on dashboard, inspects every user's stats, exports, and edits Alice's workspace!
+        admin_dash = admin_client.get("/").text
+        assert "Admin User Workspaces" in admin_dash
+        assert "پایشگر" in admin_dash
+
+        ws_page = admin_client.get("/workspaces")
+        assert ws_page.status_code == 200
+        assert "مدیریت محیط کاربری کاربران" in ws_page.text
+
+        ws_users = admin_client.get("/api/workspaces/users")
+        assert ws_users.status_code == 200
+        by_name = {u["username"]: u for u in ws_users.json()}
+        assert by_name["admin"]["workspace"]["web"]["total_sources"] == 0
+        assert by_name["alice"]["workspace"]["web"]["total_sources"] == alice_web_ov["total_sites"]
+        assert by_name["alice"]["workspace"]["web"]["total_posts"] == alice_web_ov["total_posts"]
+        assert by_name["alice"]["workspace"]["telegram"]["total_sources"] == 1
+        assert by_name["alice"]["workspace"]["x"]["total_sources"] == 1
+        assert by_name["bob"]["workspace"]["web"]["total_sources"] == 1
+
+        # Admin opens Alice's Web workspace UI (?as_user=alice_id) -> sees Admin Inspector Banner
+        insp_html = admin_client.get(f"/web/?as_user={alice_id}").text
+        assert "حالت مدیریت ادمین" in insp_html
+        assert "alice" in insp_html
+        assert f"const TARGET_USER_ID = {alice_id};" in insp_html
+
+        # Admin exports Alice's Excel, SQLite, and JSON backup directly
+        r_excel = admin_client.get(f"/web/api/exports/excel?as_user={alice_id}")
+        assert r_excel.status_code == 200
+        assert len(r_excel.content) > 1000
+
+        r_sqlite = admin_client.get(f"/web/api/exports/sqlite?as_user={alice_id}")
+        assert r_sqlite.status_code == 200
+        assert r_sqlite.content[:15] == b"SQLite format 3"
+
+        r_bkp = admin_client.get(f"/web/api/backup/export?as_user={alice_id}")
+        assert r_bkp.status_code == 200
+        bkp_data = r_bkp.json()
+        alice_domains = [s.get("canonical_url", "") or s.get("domain", "") for s in bkp_data.get("sites", [])]
+        assert any("zoomit.ir" in u for u in alice_domains)
+        assert not any("digiato.com" in u for u in alice_domains)
+
+        # Admin modifies Alice's workspace (adds a new site on Alice's behalf!)
+        r_admin_edit = admin_client.post(
+            "/web/api/sites",
+            headers={"X-Workspace-User": str(alice_id)},
+            json={"site_input": "https://isna.ir", "fetch_now": False},
+        )
+        assert r_admin_edit.status_code in (200, 201), r_admin_edit.text
+
+        # Alice immediately sees https://isna.ir in her own workspace, while Admin's and Bob's own workspaces remain untouched!
+        alice_sites = alice_client.get("/web/api/sites").json()["items"]
+        assert any("isna.ir" in (s.get("canonical_url") or s.get("domain") or "") for s in alice_sites)
+        assert admin_client.get("/web/api/overview").json()["stats"]["total_sites"] == 0
+        assert bob_client.get("/web/api/overview").json()["stats"]["total_sites"] == 1
+

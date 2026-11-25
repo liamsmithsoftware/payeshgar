@@ -162,6 +162,16 @@ class AuthDB:
         conn.close()
         return dict(row) if row else None
 
+    def get_user_any_status(self, user_id: int) -> Optional[Dict]:
+        conn = self.connect()
+        row = conn.execute("SELECT id, username, is_active, created_at FROM users WHERE id=?", (user_id,)).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def is_admin(self, user_id: int) -> bool:
+        roles = self.get_user_roles(user_id)
+        return any(r["name"] == "admin" for r in roles)
+
     def verify_credentials(self, username: str, password: str) -> tuple[Optional[Dict], Optional[str]]:
         conn = self.connect()
         row = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
