@@ -44,15 +44,16 @@
           <tr>
             <th>شناسه</th>
             <th>نام کاربری</th>
-            <th>نقش‌ها</th>
+            <th>دسته / نقش‌ها</th>
+            <th>موجودی و نرخ سکه</th>
             <th>وضعیت</th>
             <th>تاریخ ایجاد</th>
             <th>عملیات</th>
           </tr>
         </thead>
         <tbody id="usersBody">
-          <tr><td colspan="6"><div class="skeleton" style="block-size:36px"></div></td></tr>
-          <tr><td colspan="6"><div class="skeleton" style="block-size:36px"></div></td></tr>
+          <tr><td colspan="7"><div class="skeleton" style="block-size:36px"></div></td></tr>
+          <tr><td colspan="7"><div class="skeleton" style="block-size:36px"></div></td></tr>
         </tbody>
       </table>
     </div>
@@ -118,8 +119,21 @@
       </label>
     </div>
 
+    <div class="field" id="initialWalletWrap">
+      <div class="row">
+        <div class="col">
+          <label for="uInitCoins">شارژ اولیه سکه</label>
+          <input type="number" min="0" step="any" id="uInitCoins" value="10" class="input-ltr tabular">
+        </div>
+        <div class="col">
+          <label for="uPostsPerCoin">تعداد خبر به ازای هر ۱ سکه</label>
+          <input type="number" min="1" step="1" id="uPostsPerCoin" value="100" class="input-ltr tabular">
+        </div>
+      </div>
+    </div>
+
     <div class="field">
-      <label>نقش‌های اختصاص‌یافته</label>
+      <label>دسته / نقش کاربر</label>
       <div id="userRolesList" class="perm-grid"></div>
     </div>
 
@@ -255,26 +269,34 @@ function renderUsers() {
   const tb = document.getElementById('usersBody');
   if (!tb) return;
   if (!allUsers.length) {
-    tb.innerHTML = '<tr><td colspan="6"><div class="empty-state" style="padding-block:24px"><h3>هیچ کاربری ثبت نشده است</h3></div></td></tr>';
+    tb.innerHTML = '<tr><td colspan="7"><div class="empty-state" style="padding-block:24px"><h3>هیچ کاربری ثبت نشده است</h3></div></td></tr>';
     return;
   }
   const canEdit = myPerms.includes('users.edit');
   const canDel = myPerms.includes('users.delete');
-  tb.innerHTML = allUsers.map(u => `
-    <tr>
-      <td class="tabular">${u.id}</td>
-      <td><b><bdi>${esc(u.username)}</bdi></b></td>
-      <td>${(u.roles || []).map(r => `<span class="badge ok" style="margin-inline-end:4px"><bdi>${esc(r)}</bdi></span>`).join('') || '–'}</td>
-      <td>${u.is_active ? '<span class="status success">فعال</span>' : '<span class="status error">غیرفعال</span>'}</td>
-      <td><span class="mono tabular">${esc(u.created_at)}</span></td>
-      <td>
-        <div class="table-actions">
-          ${canEdit ? `<button type="button" class="btn btn-ghost btn-sm" onclick="openUserModal(${u.id}, this)">✏️ ویرایش</button>` : ''}
-          ${canDel ? `<button type="button" class="btn btn-danger btn-sm" onclick="deleteUser(${u.id})">🗑 حذف</button>` : ''}
-        </div>
-      </td>
-    </tr>
-  `).join('');
+  tb.innerHTML = allUsers.map(u => {
+    const w = u.wallet || { coin_balance: 0, posts_per_coin: 100, coins_per_batch: 1 };
+    return `
+      <tr>
+        <td class="tabular">${u.id}</td>
+        <td><b><bdi>${esc(u.username)}</bdi></b></td>
+        <td>${(u.roles || []).map(r => `<span class="badge ok" style="margin-inline-end:4px"><bdi>${esc(r)}</bdi></span>`).join('') || '–'}</td>
+        <td class="tabular">
+          <span class="badge warn">🪙 ${w.coin_balance} سکه</span>
+          <small style="display:block;color:var(--muted);font-size:11px;margin-block-start:3px">هر ${w.posts_per_coin} خبر = ${w.coins_per_batch} سکه</small>
+        </td>
+        <td>${u.is_active ? '<span class="status success">فعال</span>' : '<span class="status error">غیرفعال</span>'}</td>
+        <td><span class="mono tabular">${esc(u.created_at)}</span></td>
+        <td>
+          <div class="table-actions">
+            <a href="/admin/accounting" class="btn btn-ghost btn-sm">🪙 شارژ/نرخ</a>
+            ${canEdit ? `<button type="button" class="btn btn-ghost btn-sm" onclick="openUserModal(${u.id}, this)">✏️ ویرایش</button>` : ''}
+            ${canDel ? `<button type="button" class="btn btn-danger btn-sm" onclick="deleteUser(${u.id})">🗑 حذف</button>` : ''}
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
 }
 
 function renderRoles() {
@@ -314,13 +336,16 @@ function openUserModal(uid, triggerEl) {
   document.getElementById('editUserId').value = uid || '';
   document.getElementById('userModalTitle').textContent = u ? `ویرایش کاربر: ${u.username}` : 'افزودن کاربر جدید';
   document.getElementById('usernameFieldWrap').style.display = u ? 'none' : 'block';
+  document.getElementById('initialWalletWrap').style.display = u ? 'none' : 'block';
   document.getElementById('uUsername').value = u ? u.username : '';
   document.getElementById('uPassword').value = '';
+  document.getElementById('uInitCoins').value = '10';
+  document.getElementById('uPostsPerCoin').value = '100';
   document.getElementById('pwdLabel').textContent = u ? 'رمز عبور جدید (خالی بگذارید اگر تغییر نمی‌کند)' : 'رمز عبور';
   document.getElementById('activeWrap').style.display = u ? 'block' : 'none';
   document.getElementById('uActive').checked = u ? !!u.is_active : true;
 
-  const selected = new Set(u ? u.roles : []);
+  const selected = new Set(u ? u.roles : ['user']);
   document.getElementById('userRolesList').innerHTML = allRoles.map(r => `
     <label class="perm-item">
       <input type="checkbox" class="uRoleChk" value="${esc(r.name)}" ${selected.has(r.name) ? 'checked' : ''}>
@@ -353,10 +378,12 @@ async function saveUser() {
       });
     } else {
       const username = document.getElementById('uUsername').value.trim();
+      const initial_coins = parseFloat(document.getElementById('uInitCoins').value || '0');
+      const posts_per_coin = parseInt(document.getElementById('uPostsPerCoin').value || '100', 10);
       res = await fetch('/api/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, roles }),
+        body: JSON.stringify({ username, password, roles, initial_coins, posts_per_coin }),
       });
     }
     const data = await res.json();

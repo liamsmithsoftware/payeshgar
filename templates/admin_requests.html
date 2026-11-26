@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+{% block title %}مدیریت درخواست‌های کاربران | پایشگر{% endblock %}
+{% block content %}
+<section class="panel" style="margin-block-end:24px" aria-labelledby="admReqTitle">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+    <div>
+      <h1 id="admReqTitle" style="font-size:22px;font-weight:900;margin-block-end:8px">📩 مدیریت درخواست‌های پایش کاربران</h1>
+      <p class="sub" style="margin-block-end:0">
+        تمامی درخواست‌های ثبت‌شده توسط کاربران (شامل منابع مشترک بین چند کاربر) در این صفحه قابل مشاهده است. می‌توانید منبع را مستقیماً به سامانه وب/تلگرام/ایکس اضافه کنید و به هر کاربر پاسخ دلخواه بدهید.
+      </p>
+    </div>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="loadAdminRequests(true)">🔄 بروزرسانی</button>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-box"><div class="num tabular" id="stTotal">–</div><div class="lbl">کل درخواست‌ها</div></div>
+    <div class="stat-box"><div class="num tabular" id="stPending" style="color:#fbbf24">–</div><div class="lbl">در انتظار بررسی</div></div>
+    <div class="stat-box"><div class="num tabular" id="stApproved" style="color:#4ade80">–</div><div class="lbl">تایید و فعال‌شده</div></div>
+    <div class="stat-box"><div class="num tabular" id="stRejected" style="color:#f87171">–</div><div class="lbl">رد شده</div></div>
+  </div>
+
+  <div class="row">
+    <div class="col">
+      <label for="afStatus">وضعیت درخواست</label>
+      <select id="afStatus" onchange="loadAdminRequests(false)">
+        <option value="all">همه وضعیت‌ها</option>
+        <option value="pending">⏳ در انتظار بررسی</option>
+        <option value="approved">✅ تایید شده</option>
+        <option value="rejected">❌ رد شده</option>
+      </select>
+    </div>
+    <div class="col">
+      <label for="afPlatform">پلتفرم</label>
+      <select id="afPlatform" onchange="loadAdminRequests(false)">
+        <option value="all">همه پلتفرم‌ها</option>
+        <option value="web">🌐 وب‌سایت</option>
+        <option value="telegram">✈️ کانال تلگرام</option>
+        <option value="x">𝕏 صفحه ایکس</option>
+      </select>
+    </div>
+    <div class="col">
+      <label for="afSearch">جستجو (نام کاربر، آدرس، عنوان)</label>
+      <input type="search" id="afSearch" placeholder="جستجو..." oninput="loadAdminRequests(false)">
+    </div>
+  </div>
+</section>
+
+<section class="panel" aria-labelledby="admReqListTitle">
+  <h2 id="admReqListTitle" style="margin-block-end:14px">فهرست درخواست‌ها</h2>
+  <div id="admRequestsWrap">
+    <div class="skeleton" style="block-size:64px;margin-block-end:10px"></div>
+    <div class="skeleton" style="block-size:64px"></div>
+  </div>
+</section>
+
+<!-- Reply & Action Modal -->
+<div class="modal-overlay" id="replyModal" role="dialog" aria-modal="true" aria-labelledby="replyModalTitle" onclick="if(event.target===this)closeReplyModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="replyModalTitle">بررسی و پاسخ به درخواست کاربر</h3>
+      <button type="button" class="modal-close-btn" onclick="closeReplyModal()" aria-label="بستن">&times;</button>
+    </div>
+    <input type="hidden" id="rmReqId">
+
+    <div id="rmSummary" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-block-end:14px;font-size:13px"></div>
+
+    <div class="field">
+      <label for="rmStatus">وضعیت درخواست</label>
+      <select id="rmStatus">
+        <option value="approved">✅ تایید شده (فعال برای کاربر)</option>
+        <option value="pending">⏳ در انتظار بررسی</option>
+        <option value="rejected">❌ رد شده</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="rmReply">متن پاسخ ادمین به کاربر</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-block-end:8px">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="setQuickReply('به فهرست پایش اضافه گردید.', 'approved')">+ به فهرست اضافه گردید</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="setQuickReply('این منبع فعال است و نتایج آن در بخش نتایج شما قابل مشاهده است.', 'approved')">+ منبع فعال است</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="setQuickReply('درخواست شما در صف بررسی فنی قرار گرفت.', 'pending')">+ در حال بررسی</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="setQuickReply('آدرس ارسالی معتبر یا قابل پایش نیست.', 'rejected')">+ آدرس نامعتبر</button>
+      </div>
+      <textarea id="rmReply" rows="3" placeholder="پاسخ خود را برای نمایش به کاربر بنویسید..."></textarea>
+    </div>
+
+    <div class="field" id="rmAutoAddWrap">
+      <label for="rmAddCollector" style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;color:var(--text)">
+        <input type="checkbox" id="rmAddCollector" checked style="inline-size:18px;block-size:18px;accent-color:var(--primary)">
+        <span>⚡ افزودن خودکار این منبع به فهرست سامانه پایشگر مربوطه (در صورت عدم وجود)</span>
+      </label>
+    </div>
+
+    <div id="rmErr" aria-live="polite"></div>
+
+    <div class="modal-actions">
+      <button type="button" id="btnSaveReply" class="btn btn-primary" onclick="saveAdminReply()">💾 ثبت وضعیت و ارسال پاسخ</button>
+      <button type="button" class="btn btn-ghost" onclick="closeReplyModal()">انصراف</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let adminReqItems = [];
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function statusBadge(st) {
+  if (st === 'approved') return '<span class="badge ok">✅ تایید شده</span>';
+  if (st === 'rejected') return '<span class="badge err">❌ رد شده</span>';
+  return '<span class="badge warn">⏳ در انتظار</span>';
+}
+
+async function loadAdminRequests(notify) {
+  const wrap = document.getElementById('admRequestsWrap');
+  const params = new URLSearchParams({
+    status: document.getElementById('afStatus').value,
+    platform: document.getElementById('afPlatform').value,
+    q: document.getElementById('afSearch').value.trim(),
+  });
+  try {
+    const res = await fetch('/api/admin/requests?' + params.toString());
+    if (!res.ok) {
+      wrap.innerHTML = '<div class="alert alert-error">خطا در بارگذاری درخواست‌ها.</div>';
+      return;
+    }
+    const data = await res.json();
+    adminReqItems = data.items || [];
+    const sum = data.summary || {};
+    document.getElementById('stTotal').textContent = sum.total ?? 0;
+    document.getElementById('stPending').textContent = sum.pending ?? 0;
+    document.getElementById('stApproved').textContent = sum.approved ?? 0;
+    document.getElementById('stRejected').textContent = sum.rejected ?? 0;
+
+    if (!adminReqItems.length) {
+      wrap.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon" aria-hidden="true">📭</div>
+          <h3>درخواستی مطابق فیلتر فعلی وجود ندارد</h3>
+        </div>
+      `;
+      return;
+    }
+
+    wrap.innerHTML = `
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>کاربر</th>
+              <th>پلتفرم و منبع درخواستی</th>
+              <th>وضعیت در پایشگر</th>
+              <th>وضعیت درخواست و پاسخ ادمین</th>
+              <th>عملیات</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${adminReqItems.map(r => {
+              const pIcon = r.platform === 'web' ? '🌐' : (r.platform === 'telegram' ? '✈️' : '𝕏');
+              const sharedHtml = r.shared_requesters_count > 1
+                ? `<span class="badge warn" title="چند کاربر این منبع یکسان را درخواست داده‌اند">👥 مشترک بین <span class="tabular">${r.shared_requesters_count}</span> کاربر</span>`
+                : '';
+              return `
+                <tr>
+                  <td>
+                    <strong><bdi>${esc(r.username)}</bdi></strong>
+                    <div class="mono tabular" style="color:var(--muted);font-size:11px">${esc(r.created_at)}</div>
+                  </td>
+                  <td>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-block-end:4px">
+                      <span class="badge">${pIcon} ${esc(r.platform_label)}</span>
+                      <strong>${esc(r.title)}</strong>
+                      ${sharedHtml}
+                    </div>
+                    <div><a href="${esc(r.canonical_url)}" target="_blank" rel="noopener noreferrer" class="mono">${esc(r.canonical_url)}</a></div>
+                    ${r.user_note ? `<div style="font-size:12px;color:#cbd5e1;margin-block-start:4px">📝 توضیح کاربر: ${esc(r.user_note)}</div>` : ''}
+                  </td>
+                  <td>
+                    ${r.in_collector
+                      ? '<span class="badge ok">📡 موجود در فهرست پایش</span>'
+                      : '<span class="badge">ثبت‌نشده در پایشگر</span>'}
+                  </td>
+                  <td style="max-inline-size:280px">
+                    <div>${statusBadge(r.status)}</div>
+                    ${r.admin_reply ? `<div style="font-size:12px;color:#93c5fd;margin-block-start:4px">💬 ${esc(r.admin_reply)}</div>` : ''}
+                  </td>
+                  <td>
+                    <div class="table-actions">
+                      <button type="button" class="btn btn-primary btn-sm" onclick="openReplyModal(${r.id})">💬 پاسخ / اقدام</button>
+                      <a href="/${r.platform}/" class="btn btn-ghost btn-sm" title="باز کردن سامانه ${esc(r.platform_label)}">↗ محیط ${esc(r.platform === 'web' ? 'وب' : (r.platform === 'telegram' ? 'تلگرام' : 'ایکس'))}</a>
+                    </div>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    if (notify && window.showPayeshgarToast) {
+      window.showPayeshgarToast('فهرست درخواست‌ها بروزرسانی شد.', 'ok');
+    }
+  } catch (e) {
+    wrap.innerHTML = '<div class="alert alert-error">خطا در ارتباط با سرور.</div>';
+  }
+}
+
+function openReplyModal(reqId) {
+  const r = adminReqItems.find(x => x.id === reqId);
+  if (!r) return;
+  document.getElementById('rmErr').innerHTML = '';
+  document.getElementById('rmReqId').value = r.id;
+  document.getElementById('rmSummary').innerHTML = `
+    <div>کاربر درخواست‌دهنده: <strong><bdi>${esc(r.username)}</bdi></strong> | پلتفرم: <strong>${esc(r.platform_label)}</strong></div>
+    <div style="margin-block-start:4px">منبع: <span class="mono">${esc(r.canonical_url)}</span></div>
+  `;
+  document.getElementById('rmStatus').value = r.status === 'pending' ? 'approved' : r.status;
+  document.getElementById('rmReply').value = r.admin_reply || 'به فهرست پایش اضافه گردید.';
+  document.getElementById('rmAddCollector').checked = !r.in_collector;
+  document.getElementById('replyModal').classList.add('open');
+}
+
+function setQuickReply(txt, st) {
+  document.getElementById('rmReply').value = txt;
+  if (st) document.getElementById('rmStatus').value = st;
+  if (st === 'rejected') document.getElementById('rmAddCollector').checked = false;
+}
+
+function closeReplyModal() {
+  document.getElementById('replyModal').classList.remove('open');
+}
+
+async function saveAdminReply() {
+  const reqId = document.getElementById('rmReqId').value;
+  const btn = document.getElementById('btnSaveReply');
+  const errEl = document.getElementById('rmErr');
+  errEl.innerHTML = '';
+
+  const st = document.getElementById('rmStatus').value;
+  const payload = {
+    status: st,
+    admin_reply: document.getElementById('rmReply').value.trim(),
+    add_to_collector: st !== 'rejected' && document.getElementById('rmAddCollector').checked,
+  };
+
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/admin/requests/' + reqId, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.innerHTML = `<div class="alert alert-error">${esc(data.error || 'خطا در ثبت پاسخ')}</div>`;
+      return;
+    }
+    closeReplyModal();
+    await loadAdminRequests(false);
+    if (window.showPayeshgarToast) {
+      const addedMsg = data.collector && !data.collector.already_exists ? ' و منبع به فهرست پایشگر اضافه شد' : '';
+      window.showPayeshgarToast('پاسخ شما ثبت گردید' + addedMsg + '.', 'ok');
+    }
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.addEventListener('keydown', function(ev) {
+  if (ev.key === 'Escape') closeReplyModal();
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+  loadAdminRequests(false);
+});
+</script>
+{% endblock %}

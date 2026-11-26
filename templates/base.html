@@ -46,6 +46,13 @@
     }
   };
 
+  window.updateNavCoinBalance = function(val) {
+    const el = document.getElementById('navCoinVal');
+    if (el && val !== undefined && val !== null) {
+      el.textContent = val;
+    }
+  };
+
   window.showPayeshgarToast = function(message, variant) {
     const stack = document.getElementById('toastStack');
     if (!stack) return;
@@ -86,25 +93,28 @@
   <div class="header-inner">
     <a href="/" class="logo">
       <span class="logo-icon" aria-hidden="true">📡</span>
-      <span>پایشگر<small><bdi>Payeshgar</bdi> • سامانه یکپارچه خزش و آرشیو</small></span>
+      <span>پایشگر<small><bdi>Payeshgar</bdi> • سامانه یکپارچه پایش و آرشیو</small></span>
     </a>
     <nav class="nav" aria-label="ناوبری اصلی پایشگر">
       {% if user %}
-        <a href="/" class="{% if request.url.path == '/' %}active{% endif %}" {% if request.url.path == '/' %}aria-current="page"{% endif %}>🏠 داشبورد</a>
-        {% if 'web.view' in perms %}
-        <a href="/web/">🌐 وب</a>
-        {% endif %}
-        {% if 'telegram.view' in perms %}
-        <a href="/telegram/">✈️ تلگرام</a>
-        {% endif %}
-        {% if 'x.view' in perms %}
-        <a href="/x/">𝕏 <bdi>X</bdi> / ایکس</a>
-        {% endif %}
         {% if is_admin %}
-        <a href="/workspaces" class="{% if request.url.path == '/workspaces' %}active{% endif %}" {% if request.url.path == '/workspaces' %}aria-current="page"{% endif %}>👁️ محیط کاربران</a>
-        {% endif %}
-        {% if 'admin.access' in perms %}
-        <a href="/admin" class="{% if request.url.path == '/admin' %}active{% endif %}" {% if request.url.path == '/admin' %}aria-current="page"{% endif %}>⚙️ مدیریت <bdi>ACL</bdi></a>
+          <a href="/" class="{% if request.url.path == '/' %}active{% endif %}" {% if request.url.path == '/' %}aria-current="page"{% endif %}>🏠 داشبورد ادمین</a>
+          <a href="/web/">🌐 وب</a>
+          <a href="/telegram/">✈️ تلگرام</a>
+          <a href="/x/">𝕏 ایکس</a>
+          <a href="/admin/requests" class="{% if request.url.path == '/admin/requests' %}active{% endif %}" {% if request.url.path == '/admin/requests' %}aria-current="page"{% endif %}>📩 درخواست‌ها</a>
+          <a href="/admin/accounting" class="{% if request.url.path == '/admin/accounting' %}active{% endif %}" {% if request.url.path == '/admin/accounting' %}aria-current="page"{% endif %}>🪙 حسابرسی و سکه</a>
+          <a href="/workspaces" class="{% if request.url.path == '/workspaces' %}active{% endif %}" {% if request.url.path == '/workspaces' %}aria-current="page"{% endif %}>👁️ محیط کاربران</a>
+          <a href="/admin" class="{% if request.url.path == '/admin' %}active{% endif %}" {% if request.url.path == '/admin' %}aria-current="page"{% endif %}>👥 کاربران</a>
+        {% else %}
+          <a href="/" class="{% if request.url.path == '/' %}active{% endif %}" {% if request.url.path == '/' %}aria-current="page"{% endif %}>🏠 پیشخوان</a>
+          <a href="/requests" class="{% if request.url.path == '/requests' %}active{% endif %}" {% if request.url.path == '/requests' %}aria-current="page"{% endif %}>📝 درخواست‌ها</a>
+          <a href="/results" class="{% if request.url.path == '/results' %}active{% endif %}" {% if request.url.path == '/results' %}aria-current="page"{% endif %}>📰 نتایج و خروجی‌ها</a>
+          {% if wallet %}
+          <span class="badge warn" title="موجودی سکه حساب شما (هر {{ wallet.posts_per_coin }} خبر = {{ wallet.coins_per_batch }} سکه)">
+            🪙 موجودی: <span id="navCoinVal" class="tabular">{{ wallet.coin_balance }}</span> سکه
+          </span>
+          {% endif %}
         {% endif %}
         <span class="user-chip" title="کاربر واردشده">
           <span class="avatar" aria-hidden="true">{{ user.username[0]|upper }}</span>

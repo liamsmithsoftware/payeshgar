@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% block title %}درخواست‌های پایش | پایشگر{% endblock %}
+{% block content %}
+<section class="panel" style="margin-block-end:24px" aria-labelledby="reqFormTitle">
+  <h1 id="reqFormTitle" style="font-size:22px;font-weight:900;margin-block-end:8px">📝 ثبت درخواست پایش جدید</h1>
+  <p class="sub">
+    آدرس وب‌سایت، کانال تلگرام یا صفحه ایکس مورد نظر خود را ثبت کنید تا پس از بررسی ادمین به فهرست پایش اضافه شود. نتایج جمع‌آوری‌شده هر منبع به‌صورت کاملاً مجزا در صفحه «نتایج و خروجی‌ها» برای شما قابل مشاهده خواهد بود.
+  </p>
+
+  <form id="newRequestForm" onsubmit="submitRequest(event)">
+    <div class="row">
+      <div class="col">
+        <label for="reqPlatform">نوع منبع (پلتفرم)</label>
+        <select id="reqPlatform">
+          <option value="auto">✨ تشخیص خودکار بر اساس آدرس</option>
+          <option value="web">🌐 وب‌سایت / خبرگزاری / RSS</option>
+          <option value="telegram">✈️ کانال تلگرام</option>
+          <option value="x">𝕏 صفحه ایکس (X / Twitter)</option>
+        </select>
+      </div>
+      <div class="col" style="grid-column: span 2">
+        <label for="reqInput">آدرس سایت، کانال تلگرام یا نام کاربری ایکس *</label>
+        <input
+          type="text"
+          id="reqInput"
+          required
+          class="input-ltr"
+          placeholder="https://zoomit.ir  |  https://t.me/telegram  |  https://x.com/nasa"
+        >
+      </div>
+    </div>
+
+    <div class="row" style="margin-block-start:14px">
+      <div class="col">
+        <label for="reqTitle">عنوان دلخواه (اختیاری)</label>
+        <input type="text" id="reqTitle" placeholder="مثلاً بخش فناوری زومیت">
+      </div>
+      <div class="col">
+        <label for="reqNote">توضیحات برای ادمین (اختیاری)</label>
+        <input type="text" id="reqNote" placeholder="مثلاً لطفاً اخبار روزانه این صفحه پایش شود">
+      </div>
+    </div>
+
+    <div id="reqFormErr" style="margin-block-start:12px" aria-live="polite"></div>
+
+    <div style="margin-block-start:16px;display:flex;gap:10px;flex-wrap:wrap">
+      <button type="submit" id="btnSubmitReq" class="btn btn-primary">➕ ثبت درخواست پایش</button>
+      <a href="/results" class="btn btn-ghost">📰 رفتن به صفحه نتایج و خروجی‌ها</a>
+    </div>
+  </form>
+</section>
+
+<section class="panel" aria-labelledby="myReqsTitle">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-block-end:16px">
+    <h2 id="myReqsTitle" style="margin:0">📋 فهرست درخواست‌های ثبت‌شده شما</h2>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="loadMyRequests(true)">🔄 بروزرسانی</button>
+  </div>
+
+  <div id="myRequestsWrap">
+    <div class="skeleton" style="block-size:64px;margin-block-end:10px"></div>
+    <div class="skeleton" style="block-size:64px"></div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function statusBadgeHtml(r) {
+  if (r.status === 'approved') {
+    return '<span class="badge ok">✅ تایید و فعال‌شده</span>';
+  }
+  if (r.status === 'rejected') {
+    return '<span class="badge err">❌ رد شده</span>';
+  }
+  if (r.in_collector) {
+    return '<span class="badge ok">📡 فعال در پایشگر</span>';
+  }
+  return '<span class="badge warn">⏳ در انتظار بررسی ادمین</span>';
+}
+
+function platformBadgeHtml(plat, label) {
+  const icon = plat === 'web' ? '🌐' : (plat === 'telegram' ? '✈️' : '𝕏');
+  return `<span class="badge">${icon} ${esc(label)}</span>`;
+}
+
+async function loadMyRequests(notify) {
+  const wrap = document.getElementById('myRequestsWrap');
+  try {
+    const res = await fetch('/api/user/requests');
+    if (!res.ok) {
+      wrap.innerHTML = '<div class="alert alert-error">خطا در دریافت لیست درخواست‌ها.</div>';
+      return;
+    }
+    const data = await res.json();
+    if (data.wallet && window.updateNavCoinBalance) {
+      window.updateNavCoinBalance(data.wallet.coin_balance);
+    }
+    const items = data.items || [];
+    if (!items.length) {
+      wrap.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon" aria-hidden="true">📭</div>
+          <h3>هنوز درخواستی ثبت نکرده‌اید</h3>
+          <p>از فرم بالای صفحه اولین وب‌سایت، کانال تلگرام یا صفحه ایکس مورد نظرتان را ثبت کنید.</p>
+        </div>
+      `;
+      return;
+    }
+
+    wrap.innerHTML = `
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>پلتفرم</th>
+              <th>عنوان و آدرس منبع</th>
+              <th>وضعیت</th>
+              <th>پاسخ ادمین</th>
+              <th>زمان ثبت</th>
+              <th>عملیات</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.map(r => `
+              <tr>
+                <td>${platformBadgeHtml(r.platform, r.platform_label)}</td>
+                <td>
+                  <div><strong>${esc(r.title)}</strong></div>
+                  <div><a href="${esc(r.canonical_url)}" target="_blank" rel="noopener noreferrer" class="mono">${esc(r.canonical_url)}</a></div>
+                  ${r.user_note ? `<div style="font-size:12px;color:var(--muted);margin-block-start:4px">یادداشت شما: ${esc(r.user_note)}</div>` : ''}
+                </td>
+                <td>
+                  <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">
+                    ${statusBadgeHtml(r)}
+                    ${r.in_collector ? '<small style="color:#4ade80;font-size:11.5px">در حال جمع‌آوری داده</small>' : ''}
+                  </div>
+                </td>
+                <td style="max-inline-size:300px">
+                  ${r.admin_reply
+                    ? `<div style="background:var(--info-soft);border:1px solid var(--info-border);border-radius:8px;padding:8px 10px;color:#dbeafe;font-size:12.5px">
+                         💬 ${esc(r.admin_reply)}
+                         ${r.replied_at ? `<div class="mono tabular" style="color:var(--muted);font-size:11px;margin-block-start:4px">${esc(r.replied_at)}</div>` : ''}
+                       </div>`
+                    : '<span style="color:var(--muted);font-size:12px">بدون پاسخ</span>'}
+                </td>
+                <td><span class="mono tabular">${esc(r.created_at)}</span></td>
+                <td>
+                  <div class="table-actions">
+                    ${r.status !== 'rejected' ? `<button type="button" class="btn btn-primary btn-sm" onclick="window.payeshgarNav('/results?request_id=${r.id}')">📰 نتایج</button>` : ''}
+                    <button type="button" class="btn btn-danger btn-sm" onclick="deleteMyRequest(${r.id})">🗑 حذف</button>
+                  </div>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    if (notify && window.showPayeshgarToast) {
+      window.showPayeshgarToast('لیست درخواست‌ها بروزرسانی شد.', 'ok');
+    }
+  } catch (e) {
+    wrap.innerHTML = '<div class="alert alert-error">خطا در ارتباط با سرور.</div>';
+  }
+}
+
+async function submitRequest(ev) {
+  ev.preventDefault();
+  const errEl = document.getElementById('reqFormErr');
+  const btn = document.getElementById('btnSubmitReq');
+  errEl.innerHTML = '';
+
+  const payload = {
+    platform: document.getElementById('reqPlatform').value,
+    raw_input: document.getElementById('reqInput').value.trim(),
+    title: document.getElementById('reqTitle').value.trim(),
+    user_note: document.getElementById('reqNote').value.trim(),
+  };
+
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/user/requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.innerHTML = `<div class="alert alert-error" role="alert">${esc(data.error || 'خطا در ثبت درخواست')}</div>`;
+      return;
+    }
+    document.getElementById('reqInput').value = '';
+    document.getElementById('reqTitle').value = '';
+    document.getElementById('reqNote').value = '';
+    await loadMyRequests(false);
+    if (window.showPayeshgarToast) {
+      window.showPayeshgarToast('درخواست پایش شما با موفقیت ثبت شد.', 'ok');
+    }
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function deleteMyRequest(id) {
+  if (!confirm('آیا از حذف این درخواست مطمئن هستید؟')) return;
+  const res = await fetch('/api/user/requests/' + id, { method: 'DELETE' });
+  if (res.ok) {
+    await loadMyRequests(false);
+    if (window.showPayeshgarToast) {
+      window.showPayeshgarToast('درخواست حذف شد.', 'ok');
+    }
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  loadMyRequests(false);
+});
+</script>
+{% endblock %}

@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+{% block title %}نتایج و خروجی درخواست‌ها | پایشگر{% endblock %}
+{% block content %}
+<section class="panel" style="margin-block-end:20px" aria-labelledby="resHeading">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-block-end:14px">
+    <div>
+      <h1 id="resHeading" style="font-size:22px;font-weight:900;margin-block-end:6px">📰 نتایج و خروجی درخواست‌های شما</h1>
+      <p class="sub" style="margin-block-end:0">
+        در این بخش صرفاً اخبار و داده‌های مربوط به منابع درخواستی خودتان را مشاهده، جستجو، فیلتر و دریافت می‌کنید. اخبار قبلاً نمایش‌داده‌شده بدون کسر مجدد سکه همیشه در دسترس شما هستند.
+      </p>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button type="button" class="btn btn-primary btn-sm" onclick="exportUserResults('xlsx')">📊 خروجی اکسل (<bdi>.xlsx</bdi>)</button>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="exportUserResults('json')">📦 خروجی <bdi>JSON</bdi></button>
+    </div>
+  </div>
+
+  <!-- Live Coin Meter -->
+  <div id="walletBar" style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:12px 16px;margin-block-end:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;font-size:13px">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <span class="badge warn">🪙 موجودی: <strong id="wCoins" class="tabular">{{ wallet.coin_balance }}</strong> سکه</span>
+        <span class="badge ok">⚖️ تعرفه: هر <span id="wRatePpc" class="tabular">{{ wallet.posts_per_coin }}</span> خبر = <span id="wRateCpb" class="tabular">{{ wallet.coins_per_batch }}</span> سکه</span>
+        <span class="badge">ظرفیت خبر جدید: <strong id="wAllowance" class="tabular">{{ wallet.remaining_posts_allowance }}</strong> خبر</span>
+      </div>
+      <div class="tabular" style="font-size:12px;color:var(--muted)">
+        شمارنده کسر بعدی: <strong id="wUnbilled" style="color:var(--text)">{{ wallet.unbilled_posts }}</strong> / <span id="wTotalPpc">{{ wallet.posts_per_coin }}</span> خبر
+      </div>
+    </div>
+  </div>
+
+  <div id="lockedBanner"></div>
+
+  <!-- Filters Form -->
+  <form onsubmit="applyFilters(event)">
+    <div class="row">
+      <div class="col">
+        <label for="fQuery">جستجو در عنوان و متن خبر</label>
+        <input type="search" id="fQuery" placeholder="کلیدواژه مورد نظر...">
+      </div>
+      <div class="col">
+        <label for="fPlatform">پلتفرم</label>
+        <select id="fPlatform" onchange="applyFilters()">
+          <option value="all">همه پلتفرم‌ها</option>
+          <option value="web">🌐 وب‌سایت</option>
+          <option value="telegram">✈️ کانال تلگرام</option>
+          <option value="x">𝕏 صفحه ایکس</option>
+        </select>
+      </div>
+      <div class="col">
+        <label for="fRequest">منبع درخواستی من</label>
+        <select id="fRequest" onchange="applyFilters()">
+          <option value="">همه منابع درخواستی من</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row" style="margin-block-start:12px;align-items:flex-end">
+      <div class="col">
+        <label for="fDateFrom">از تاریخ میلادی (<bdi>YYYY-MM-DD</bdi>)</label>
+        <input type="date" id="fDateFrom" class="input-ltr">
+      </div>
+      <div class="col">
+        <label for="fDateTo">تا تاریخ میلادی (<bdi>YYYY-MM-DD</bdi>)</label>
+        <input type="date" id="fDateTo" class="input-ltr">
+      </div>
+      <div class="col">
+        <label for="fPageSize">تعداد نمایش در هر صفحه</label>
+        <select id="fPageSize" onchange="applyFilters()">
+          <option value="10">۱۰ خبر</option>
+          <option value="20" selected>۲۰ خبر</option>
+          <option value="50">۵۰ خبر</option>
+          <option value="100">۱۰۰ خبر</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="submit" class="btn btn-primary">🔍 اعمال فیلتر</button>
+        <button type="button" class="btn btn-ghost" onclick="resetFilters()">پاک‌سازی فیلتر</button>
+      </div>
+    </div>
+  </form>
+</section>
+
+<section class="panel" aria-labelledby="resultsListHeading">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-block-end:14px">
+    <h2 id="resultsListHeading" style="margin:0">فهرست اخبار و داده‌ها (<span id="resTotalCount" class="tabular">۰</span> مورد)</h2>
+    <div id="paginationTop" style="display:flex;gap:6px;align-items:center"></div>
+  </div>
+
+  <div id="resultsContainer">
+    <div class="skeleton" style="block-size:84px;margin-block-end:12px"></div>
+    <div class="skeleton" style="block-size:84px;margin-block-end:12px"></div>
+    <div class="skeleton" style="block-size:84px"></div>
+  </div>
+
+  <div id="paginationBottom" style="display:flex;justify-content:center;gap:8px;align-items:center;margin-block-start:18px;flex-wrap:wrap"></div>
+</section>
+
+<!-- Post Detail Modal -->
+<div class="modal-overlay" id="postModal" role="dialog" aria-modal="true" aria-labelledby="pmTitle" onclick="if(event.target===this)closePostModal()">
+  <div class="modal" style="max-inline-size:680px">
+    <div class="modal-head">
+      <h3 id="pmTitle">جزئیات کامل خبر</h3>
+      <button type="button" class="modal-close-btn" onclick="closePostModal()" aria-label="بستن">&times;</button>
+    </div>
+    <div id="pmMeta" style="display:flex;gap:8px;flex-wrap:wrap;margin-block-end:12px"></div>
+    <div id="pmBody" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;white-space:pre-wrap;line-height:1.9;max-block-size:48vh;overflow-y:auto;font-size:14px"></div>
+    <div style="margin-block-start:12px">
+      <a id="pmUrl" href="#" target="_blank" rel="noopener noreferrer" class="mono" style="word-break:break-all"></a>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost btn-sm" onclick="copyCurrentModalText()">📋 کپی متن خبر</button>
+      <button type="button" class="btn btn-primary btn-sm" onclick="closePostModal()">بستن</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+let currentItems = [];
+let requestsSelectInitialized = false;
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function buildFilterParams(includePagination) {
+  const params = new URLSearchParams();
+  const q = document.getElementById('fQuery').value.trim();
+  const platform = document.getElementById('fPlatform').value;
+  const reqId = document.getElementById('fRequest').value;
+  const df = document.getElementById('fDateFrom').value;
+  const dt = document.getElementById('fDateTo').value;
+
+  if (q) params.set('q', q);
+  if (platform && platform !== 'all') params.set('platform', platform);
+  if (reqId) params.set('request_id', reqId);
+  if (df) params.set('date_from', df);
+  if (dt) params.set('date_to', dt);
+  if (includePagination) {
+    params.set('page', String(currentPage));
+    params.set('page_size', document.getElementById('fPageSize').value || '20');
+  }
+  return params;
+}
+
+function updateWalletUI(w) {
+  if (!w) return;
+  document.getElementById('wCoins').textContent = w.coin_balance;
+  document.getElementById('wRatePpc').textContent = w.posts_per_coin;
+  document.getElementById('wRateCpb').textContent = w.coins_per_batch;
+  document.getElementById('wAllowance').textContent = w.remaining_posts_allowance;
+  document.getElementById('wUnbilled').textContent = w.unbilled_posts;
+  document.getElementById('wTotalPpc').textContent = w.posts_per_coin;
+  if (window.updateNavCoinBalance) {
+    window.updateNavCoinBalance(w.coin_balance);
+  }
+}
+
+async function loadResults() {
+  const container = document.getElementById('resultsContainer');
+  const params = buildFilterParams(true);
+  try {
+    const res = await fetch('/api/user/results?' + params.toString());
+    if (!res.ok) {
+      container.innerHTML = '<div class="alert alert-error">خطا در دریافت نتایج درخواست‌ها.</div>';
+      return;
+    }
+    const data = await res.json();
+    currentItems = data.items || [];
+    updateWalletUI(data.wallet);
+
+    if (Number(data.coins_deducted_now || 0) > 0 && window.showPayeshgarToast) {
+      window.showPayeshgarToast(`🪙 ${data.coins_deducted_now} سکه بابت نمایش اخبار جدید از حساب شما کسر شد.`, 'ok');
+    }
+
+    // Populate requests dropdown once while preserving URL query param
+    if (!requestsSelectInitialized && Array.isArray(data.requests)) {
+      const sel = document.getElementById('fRequest');
+      const urlReq = new URLSearchParams(window.location.search).get('request_id') || '';
+      sel.innerHTML = '<option value="">همه منابع درخواستی من (' + data.requests.length + ')</option>' +
+        data.requests.map(r => `<option value="${r.id}">${esc(r.title)} (${esc(r.platform_label)})</option>`).join('');
+      if (urlReq && [...sel.options].some(o => o.value === urlReq)) {
+        sel.value = urlReq;
+      }
+      requestsSelectInitialized = true;
+    }
+
+    // Locked news banner when out of coins
+    const bannerEl = document.getElementById('lockedBanner');
+    if (data.locked_new_count > 0) {
+      bannerEl.innerHTML = `
+        <div class="alert alert-error" role="alert">
+          <span>🔒 تعداد <strong class="tabular">${data.locked_new_count}</strong> خبر و داده جدید برای درخواست‌های شما جمع‌آوری شده است که به دلیل اتمام موجودی سکه قابل نمایش نیست. پس از شارژ حساب توسط ادمین بلافاصله باز خواهند شد.</span>
+        </div>
+      `;
+    } else {
+      bannerEl.innerHTML = '';
+    }
+
+    document.getElementById('resTotalCount').textContent = data.total || 0;
+
+    if (!currentItems.length) {
+      const hasReqs = Array.isArray(data.requests) && data.requests.length > 0;
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon" aria-hidden="true">${hasReqs ? '🔎' : '📝'}</div>
+          <h3>${hasReqs ? 'مطلبی برای نمایش یافت نشد' : 'هنوز هیچ منبع درخواستی ثبت نکرده‌اید'}</h3>
+          <p>${hasReqs
+            ? 'ممکن است منبع درخواستی شما هنوز توسط ادمین همگام‌سازی نشده باشد، فیلترها نتیجه‌ای نداشته باشند یا موجودی سکه شما به پایان رسیده باشد.'
+            : 'ابتدا در صفحه «درخواست‌ها» وب‌سایت، کانال تلگرام یا صفحه ایکس مورد نظر خود را ثبت نمایید.'}</p>
+          ${hasReqs
+            ? '<button type="button" class="btn btn-ghost" onclick="resetFilters()">نمایش بدون فیلتر</button>'
+            : '<a href="/requests" class="btn btn-primary">➕ ثبت اولین درخواست پایش</a>'}
+        </div>
+      `;
+      document.getElementById('paginationTop').innerHTML = '';
+      document.getElementById('paginationBottom').innerHTML = '';
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>پلتفرم / منبع</th>
+              <th>عنوان و خلاصه خبر</th>
+              <th>تاریخ شمسی / ساعت</th>
+              <th>بازدید</th>
+              <th>جزئیات</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${currentItems.map((it, idx) => {
+              const snippet = (it.content || '').slice(0, 165) + ((it.content || '').length > 165 ? '…' : '');
+              const pIcon = it.platform === 'web' ? '🌐' : (it.platform === 'telegram' ? '✈️' : '𝕏');
+              return `
+                <tr>
+                  <td style="min-inline-size:160px">
+                    <span class="badge">${pIcon} ${esc(it.platform_label)}</span>
+                    <div style="font-weight:700;margin-block-start:4px">${esc(it.source_title)}</div>
+                    <div class="mono" style="color:var(--muted);font-size:11px">${esc(it.source_handle)}</div>
+                  </td>
+                  <td>
+                    <div style="font-weight:800;font-size:14px;margin-block-end:4px">${esc(it.title)}</div>
+                    <div style="color:var(--muted);font-size:12.5px;line-height:1.75">${esc(snippet)}</div>
+                  </td>
+                  <td class="tabular" style="white-space:nowrap">
+                    <div><strong>${esc(it.published_jalali_date || it.published_date)}</strong></div>
+                    <div class="mono" style="color:var(--muted);font-size:11.5px">${esc(it.published_time || '')}</div>
+                  </td>
+                  <td class="tabular">${it.views != null ? it.views : '–'}</td>
+                  <td>
+                    <div class="table-actions">
+                      <button type="button" class="btn btn-ghost btn-sm" onclick="openPostModal(${idx})">👁 متن کامل</button>
+                      ${it.post_url ? `<a href="${esc(it.post_url)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">🔗 لینک</a>` : ''}
+                    </div>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    renderPagination(data.page, data.total_pages);
+  } catch (e) {
+    container.innerHTML = '<div class="alert alert-error">خطا در ارتباط با سرور.</div>';
+  }
+}
+
+function renderPagination(page, totalPages) {
+  if (totalPages <= 1) {
+    document.getElementById('paginationTop').innerHTML = '';
+    document.getElementById('paginationBottom').innerHTML = '';
+    return;
+  }
+  const html = `
+    <button type="button" class="btn btn-ghost btn-sm" ${page <= 1 ? 'disabled' : ''} onclick="goPage(${page - 1})">صفحه قبل</button>
+    <span class="badge tabular">صفحه ${page} از ${totalPages}</span>
+    <button type="button" class="btn btn-ghost btn-sm" ${page >= totalPages ? 'disabled' : ''} onclick="goPage(${page + 1})">صفحه بعد</button>
+  `;
+  document.getElementById('paginationTop').innerHTML = html;
+  document.getElementById('paginationBottom').innerHTML = html;
+}
+
+function goPage(p) {
+  currentPage = p;
+  loadResults();
+}
+
+function applyFilters(ev) {
+  if (ev) ev.preventDefault();
+  currentPage = 1;
+  loadResults();
+}
+
+function resetFilters() {
+  document.getElementById('fQuery').value = '';
+  document.getElementById('fPlatform').value = 'all';
+  document.getElementById('fRequest').value = '';
+  document.getElementById('fDateFrom').value = '';
+  document.getElementById('fDateTo').value = '';
+  currentPage = 1;
+  loadResults();
+}
+
+function exportUserResults(fmt) {
+  const params = buildFilterParams(false);
+  const tok = sessionStorage.getItem('payeshgar_at') || '';
+  if (tok) params.set('_at', tok);
+  const url = '/api/user/results/export.' + fmt + '?' + params.toString();
+  const a = document.createElement('a');
+  a.href = url;
+  a.setAttribute('download', '');
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  if (window.showPayeshgarToast) {
+    window.showPayeshgarToast('دریافت فایل خروجی آغاز شد.', 'ok');
+  }
+  setTimeout(loadResults, 900);
+}
+
+let activeModalText = '';
+function openPostModal(idx) {
+  const it = currentItems[idx];
+  if (!it) return;
+  activeModalText = (it.title ? it.title + '\n\n' : '') + (it.content || '');
+  document.getElementById('pmTitle').textContent = it.title || 'جزئیات خبر';
+  document.getElementById('pmMeta').innerHTML = `
+    <span class="badge">${esc(it.platform_label)}</span>
+    <span class="badge ok">${esc(it.source_title)}</span>
+    <span class="badge tabular">📅 ${esc(it.published_jalali_date || '')} (${esc(it.published_date || '')})</span>
+    <span class="badge tabular">🕒 ${esc(it.published_time || '')}</span>
+  `;
+  document.getElementById('pmBody').textContent = it.content || '';
+  const urlEl = document.getElementById('pmUrl');
+  urlEl.href = it.post_url || '#';
+  urlEl.textContent = it.post_url || '';
+  document.getElementById('postModal').classList.add('open');
+}
+
+function closePostModal() {
+  document.getElementById('postModal').classList.remove('open');
+}
+
+function copyCurrentModalText() {
+  if (navigator.clipboard && activeModalText) {
+    navigator.clipboard.writeText(activeModalText);
+    if (window.showPayeshgarToast) window.showPayeshgarToast('متن خبر در حافظه کپی شد.', 'ok');
+  }
+}
+
+document.addEventListener('keydown', function(ev) {
+  if (ev.key === 'Escape') closePostModal();
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+  const urlReq = new URLSearchParams(window.location.search).get('request_id');
+  if (urlReq) {
+    const sel = document.getElementById('fRequest');
+    sel.innerHTML = `<option value="${esc(urlReq)}" selected>در حال بارگذاری منبع...</option>`;
+  }
+  loadResults();
+});
+</script>
+{% endblock %}

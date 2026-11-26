@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -19,8 +19,9 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from modules.telegram_app.main import create_app as create_telegram_app
 from modules.web_app.main import create_app as create_web_app
 from modules.x_app.main import create_app as create_x_app
-from payeshgar.auth_db import PERM_LABELS, AuthDB, required_permission_for_subapp
+from payeshgar.auth_db import AuthDB
 from payeshgar.captcha import CaptchaService
+from payeshgar.portal import PortalService, utc_now_str
 from payeshgar.workspaces import WorkspaceRegistry
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -131,22 +132,15 @@ def build_payeshgar_topbar_html(
     viewing_other = target_user is not None
 
     links = [
-        '<a href="/" onclick="window.payeshgarNav(\'/\');return false;" class="pg-nav-link">🏠 داشبورد پایشگر</a>'
+        '<a href="/" onclick="window.payeshgarNav(\'/\');return false;" class="pg-nav-link">🏠 داشبورد</a>',
+        f'<a href="/web/" onclick="window.payeshgarNav(\'/web/\');return false;" class="{"pg-nav-link active" if (mod == "web" and not viewing_other) else "pg-nav-link"}">🌐 محیط وب</a>',
+        f'<a href="/telegram/" onclick="window.payeshgarNav(\'/telegram/\');return false;" class="{"pg-nav-link active" if (mod == "telegram" and not viewing_other) else "pg-nav-link"}">✈️ محیط تلگرام</a>',
+        f'<a href="/x/" onclick="window.payeshgarNav(\'/x/\');return false;" class="{"pg-nav-link active" if (mod == "x" and not viewing_other) else "pg-nav-link"}">𝕏 محیط ایکس</a>',
+        '<a href="/admin/requests" onclick="window.payeshgarNav(\'/admin/requests\');return false;" class="pg-nav-link">📩 درخواست‌های کاربران</a>',
+        '<a href="/admin/accounting" onclick="window.payeshgarNav(\'/admin/accounting\');return false;" class="pg-nav-link">🪙 حسابرسی و سکه</a>',
+        f'<a href="/workspaces" onclick="window.payeshgarNav(\'/workspaces\');return false;" class="{"pg-nav-link active" if viewing_other else "pg-nav-link"}">👁️ محیط کاربران</a>',
+        '<a href="/admin" onclick="window.payeshgarNav(\'/admin\');return false;" class="pg-nav-link">👥 مدیریت کاربران</a>',
     ]
-    if "web.view" in perms:
-        cls = "pg-nav-link active" if (mod == "web" and not viewing_other) else "pg-nav-link"
-        links.append(f'<a href="/web/" onclick="window.payeshgarNav(\'/web/\');return false;" class="{cls}">🌐 محیط وب</a>')
-    if "telegram.view" in perms:
-        cls = "pg-nav-link active" if (mod == "telegram" and not viewing_other) else "pg-nav-link"
-        links.append(f'<a href="/telegram/" onclick="window.payeshgarNav(\'/telegram/\');return false;" class="{cls}">✈️ محیط تلگرام</a>')
-    if "x.view" in perms:
-        cls = "pg-nav-link active" if (mod == "x" and not viewing_other) else "pg-nav-link"
-        links.append(f'<a href="/x/" onclick="window.payeshgarNav(\'/x/\');return false;" class="{cls}">𝕏 محیط ایکس</a>')
-    if is_admin:
-        cls = "pg-nav-link active" if viewing_other else "pg-nav-link"
-        links.append(f'<a href="/workspaces" onclick="window.payeshgarNav(\'/workspaces\');return false;" class="{cls}">👁️ محیط کاربران</a>')
-    if "admin.access" in perms:
-        links.append('<a href="/admin" onclick="window.payeshgarNav(\'/admin\');return false;" class="pg-nav-link">⚙️ مدیریت ACL</a>')
 
     inspector_banner = ""
     if is_admin and target_user is not None:
@@ -259,7 +253,7 @@ def build_payeshgar_topbar_html(
     color: #cbd5e1;
     text-decoration: none;
     padding-block: 6px;
-    padding-inline: 12px;
+    padding-inline: 11px;
     border-radius: 8px;
     transition: background-color 160ms cubic-bezier(0.16, 1, 0.3, 1), color 160ms cubic-bezier(0.16, 1, 0.3, 1), transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
     font-weight: 600;
@@ -467,7 +461,6 @@ def build_subapp_bridge_head(
         }}
     }};
 
-    // Rewrite root-relative /api/... calls to /{{mod}}/api/... and attach X-Auth-Token + X-Workspace-User
     const origFetch = window.fetch.bind(window);
     window.fetch = function(input, init) {{
         if (typeof input === 'string' && input.startsWith('/api/')) {{
@@ -488,7 +481,6 @@ def build_subapp_bridge_head(
         return origFetch(input, init);
     }};
 
-    // Intercept programmatic download links (triggerDownload('/api/exports/...'))
     const origAnchorClick = HTMLAnchorElement.prototype.click;
     HTMLAnchorElement.prototype.click = function() {{
         try {{
@@ -547,6 +539,7 @@ def render_subapp_index(
 def create_payeshgar_app(
     *,
     users_db_path: Optional[Path] = None,
+    portal_db_path: Optional[Path] = None,
     workspaces_root: Optional[Path] = None,
     web_db_path: Optional[Path] = None,
     telegram_db_path: Optional[Path] = None,
@@ -558,7 +551,11 @@ def create_payeshgar_app(
     captcha_service = CaptchaService(secret_key)
     auth_db = AuthDB(db_path=users_db_path)
 
-    # Derive isolated workspaces_root cleanly (also handles test tmp_path passed via *_db_path)
+    resolved_portal_db = portal_db_path
+    if resolved_portal_db is None and users_db_path is not None:
+        resolved_portal_db = Path(users_db_path).resolve().parent / "portal.db"
+    portal = PortalService(db_path=resolved_portal_db)
+
     resolved_ws_root = workspaces_root
     if resolved_ws_root is None and web_db_path is not None:
         resolved_ws_root = Path(web_db_path).resolve().parent.parent
@@ -568,8 +565,6 @@ def create_payeshgar_app(
         enable_schedulers=enable_schedulers,
     )
 
-    # Sub-apps act as stateless FastAPI routers + static file servers; DB/SyncManager/Scheduler
-    # are injected per-request from `workspaces.get_runtime(effective_user_id, mod)`.
     default_web_rt = workspaces.get_runtime(1, "web")
     default_tg_rt = workspaces.get_runtime(1, "telegram")
     default_x_rt = workspaces.get_runtime(1, "x")
@@ -587,7 +582,7 @@ def create_payeshgar_app(
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         existing_uids = [u["id"] for u in auth_db.list_users()]
-        workspaces.start(existing_uids)
+        workspaces.start(existing_uids or [1])
         try:
             yield
         finally:
@@ -595,10 +590,11 @@ def create_payeshgar_app(
 
     app = FastAPI(
         title="سامانه یکپارچه پایشگر (Payeshgar)",
-        version="2.1.0",
+        version="3.0.0",
         lifespan=lifespan,
     )
     app.state.auth_db = auth_db
+    app.state.portal = portal
     app.state.captcha = captcha_service
     app.state.auth_signer = auth_signer
     app.state.workspaces = workspaces
@@ -636,16 +632,31 @@ def create_payeshgar_app(
         user = auth_db.get_user_by_id(uid)
         return user, from_fallback
 
+    def build_template_ctx(request: Request, user: Dict[str, Any], **extra: Any) -> Dict[str, Any]:
+        is_admin = auth_db.is_admin(user["id"])
+        perms = auth_db.get_user_permissions(user["id"]) if is_admin else set()
+        roles = auth_db.get_user_roles(user["id"])
+        wallet = portal.get_wallet(user["id"])
+        token = make_auth_token(user["id"])
+        base_ctx = {
+            "request": request,
+            "user": user,
+            "perms": perms,
+            "roles": roles,
+            "is_admin": is_admin,
+            "wallet": wallet,
+            "auth_token": token,
+        }
+        base_ctx.update(extra)
+        return base_ctx
+
     def resolve_target_workspace_user(
         request: Request,
-        caller: Dict[str, Any],
-    ) -> tuple[Optional[Dict[str, Any]], Optional[str], int]:
+    ) -> tuple[int, Optional[Dict[str, Any]], Optional[str], int]:
         """
-        Determines which user's workspace this request operates on.
-        - Default: caller's own workspace.
-        - If `X-Workspace-User` header or `as_user` query param is specified:
-          ONLY Admin (`auth_db.is_admin(caller['id'])`) may access another user's workspace!
-        Returns `(target_user_dict, error_message, http_status)`.
+        Resolves which collector workspace an Admin request operates on:
+        - Default (no `as_user` / `X-Workspace-User`): central collector workspace `uid=1`.
+        - With `as_user` / `X-Workspace-User`: that specific user's workspace.
         """
         raw_target = (
             request.headers.get("X-Workspace-User")
@@ -653,24 +664,16 @@ def create_payeshgar_app(
             or ""
         ).strip()
         if not raw_target:
-            return caller, None, 200
-
+            return 1, None, None, 200
         if not raw_target.isdigit():
-            return None, "شناسه کاربر هدف معتبر نیست.", 400
-
+            return 1, None, "شناسه کاربر هدف معتبر نیست.", 400
         target_uid = int(raw_target)
-        if target_uid != int(caller["id"]) and not auth_db.is_admin(caller["id"]):
-            return None, "فقط ادمین سیستم مجاز به مشاهده، خروجی‌گیری و ویرایش محیط سایر کاربران است.", 403
-
-        if not auth_db.is_admin(caller["id"]) and target_uid == int(caller["id"]):
-            return caller, None, 200
-
         target_user = auth_db.get_user_any_status(target_uid)
         if not target_user:
-            return None, "کاربر مورد نظر یافت نشد.", 404
-        return target_user, None, 200
+            return 1, None, "کاربر مورد نظر یافت نشد.", 404
+        return target_uid, target_user, None, 200
 
-    # ---------- ACL + Per-User Workspace Middleware for (/web/*, /telegram/*, /x/*) ----------
+    # ---------- Strict Admin-Only Guard for (/web/*, /telegram/*, /x/*) ----------
     @app.middleware("http")
     async def acl_subapp_guard(request: Request, call_next):
         path = request.url.path
@@ -696,25 +699,22 @@ def create_payeshgar_app(
                     )
                 return RedirectResponse(url=f"/login?next=/{matched_mod}/", status_code=302)
 
-            perms = auth_db.get_user_permissions(user["id"])
-            needed = required_permission_for_subapp(matched_mod, request.method, sub_path)
-            if needed not in perms:
-                desc = PERM_LABELS.get(needed, needed)
+            # All collector environments (/web, /telegram, /x) belong strictly to Admin!
+            if not auth_db.is_admin(user["id"]):
                 if is_api:
                     return JSONResponse(
-                        {"detail": f"شما دسترسی انجام این عملیات را ندارید: «{desc}» ({needed})"},
+                        {"detail": "این بخش مختص مدیر سیستم (ادمین) است. کاربران عادی از بخش «درخواست‌ها» و «نتایج» استفاده می‌کنند."},
                         status_code=403,
                     )
                 return RedirectResponse(url="/", status_code=302)
 
-            target_user, ws_err, ws_status = resolve_target_workspace_user(request, user)
-            if ws_err or not target_user:
-                if is_api or sub_path.startswith("/api/"):
-                    return JSONResponse({"detail": ws_err or "خطای دسترسی به محیط کاربر"}, status_code=ws_status)
+            target_uid, target_user, ws_err, ws_status = resolve_target_workspace_user(request)
+            if ws_err:
+                if is_api:
+                    return JSONResponse({"detail": ws_err}, status_code=ws_status)
                 return RedirectResponse(url="/", status_code=302)
 
-            # Bind this request to the target user's isolated workspace!
-            rt = workspaces.get_runtime(target_user["id"], matched_mod)
+            rt = workspaces.get_runtime(target_uid, matched_mod)
             request.state.ws_db = rt.db
             request.state.ws_sync_manager = rt.sync_manager
             request.state.ws_scheduler = rt.scheduler
@@ -727,7 +727,6 @@ def create_payeshgar_app(
 
         return await call_next(request)
 
-    # ---------- Helper: Render Login ----------
     def render_login(request: Request, error: Optional[str] = None, username_val: str = "", next_val: str = "") -> Response:
         cap = captcha_service.generate()
         return templates.TemplateResponse(
@@ -742,7 +741,15 @@ def create_payeshgar_app(
             },
         )
 
-    # ---------- Gateway Routes ----------
+    def _require_admin_api(request: Request) -> tuple[Optional[Dict[str, Any]], Optional[JSONResponse]]:
+        user, _ = get_request_user(request)
+        if not user:
+            return None, JSONResponse({"error": "ابتدا وارد حساب کاربری شوید."}, status_code=401)
+        if not auth_db.is_admin(user["id"]):
+            return None, JSONResponse({"error": "این عملیات صرفاً مخصوص ادمین سیستم است."}, status_code=403)
+        return user, None
+
+    # ---------- Auth & Dashboard Routes ----------
     @app.get("/api/captcha", include_in_schema=False)
     async def api_captcha() -> Dict[str, str]:
         cap = captcha_service.generate()
@@ -753,23 +760,24 @@ def create_payeshgar_app(
         user, from_fallback = get_request_user(request)
         if not user:
             return render_login(request)
-        perms = auth_db.get_user_permissions(user["id"])
-        roles = auth_db.get_user_roles(user["id"])
+
         is_admin = auth_db.is_admin(user["id"])
-        token = make_auth_token(user["id"])
-        resp = templates.TemplateResponse(
-            request,
-            "landing.html",
-            {
-                "user": user,
-                "perms": perms,
-                "roles": roles,
-                "is_admin": is_admin,
-                "auth_token": token,
-            },
-        )
+        extra: Dict[str, Any] = {}
+        if is_admin:
+            users_map = {u["id"]: u for u in auth_db.list_users()}
+            all_reqs = portal.list_all_requests_for_admin(users_map, workspaces)
+            extra["pending_requests_count"] = sum(1 for r in all_reqs if r["status"] == "pending")
+            extra["total_requests_count"] = len(all_reqs)
+        else:
+            user_reqs = portal.list_user_requests(user["id"], workspaces)
+            extra["user_requests"] = user_reqs[:5]
+            extra["user_requests_total"] = len(user_reqs)
+            extra["recent_transactions"] = portal.list_transactions(user["id"], limit=8)
+
+        ctx = build_template_ctx(request, user, **extra)
+        resp = templates.TemplateResponse(request, "landing.html", ctx)
         if from_fallback:
-            set_session_cookie(resp, request, token)
+            set_session_cookie(resp, request, ctx["auth_token"])
         return resp
 
     @app.get("/login", include_in_schema=False)
@@ -828,17 +836,364 @@ def create_payeshgar_app(
         user, _ = get_request_user(request)
         if not user:
             return {"logged_in": False}
-        perms = auth_db.get_user_permissions(user["id"])
+        is_admin = auth_db.is_admin(user["id"])
+        perms = auth_db.get_user_permissions(user["id"]) if is_admin else set()
         roles = auth_db.get_user_roles(user["id"])
         return {
             "logged_in": True,
+            "id": user["id"],
             "username": user["username"],
-            "is_admin": auth_db.is_admin(user["id"]),
+            "is_admin": is_admin,
             "roles": [r["name"] for r in roles],
             "permissions": sorted(perms),
+            "wallet": portal.get_wallet(user["id"]),
         }
 
-    # ---------- Admin-Only Section: User Workspaces Inspector (/workspaces) ----------
+    # ---------- User Portal Pages & APIs (/requests, /results) ----------
+    @app.get("/requests", include_in_schema=False)
+    async def user_requests_page(request: Request) -> Response:
+        user, from_fallback = get_request_user(request)
+        if not user:
+            return RedirectResponse(url="/login?next=/requests", status_code=302)
+        ctx = build_template_ctx(request, user)
+        resp = templates.TemplateResponse(request, "requests.html", ctx)
+        if from_fallback:
+            set_session_cookie(resp, request, ctx["auth_token"])
+        return resp
+
+    @app.get("/results", include_in_schema=False)
+    async def user_results_page(request: Request) -> Response:
+        user, from_fallback = get_request_user(request)
+        if not user:
+            return RedirectResponse(url="/login?next=/results", status_code=302)
+        ctx = build_template_ctx(request, user)
+        resp = templates.TemplateResponse(request, "results.html", ctx)
+        if from_fallback:
+            set_session_cookie(resp, request, ctx["auth_token"])
+        return resp
+
+    @app.get("/api/user/wallet", include_in_schema=False)
+    async def api_user_wallet(request: Request) -> Response:
+        user, _ = get_request_user(request)
+        if not user:
+            return JSONResponse({"error": "ابتدا وارد حساب کاربری شوید."}, status_code=401)
+        return JSONResponse(
+            {
+                "wallet": portal.get_wallet(user["id"]),
+                "transactions": portal.list_transactions(user["id"], limit=50),
+            }
+        )
+
+    @app.get("/api/user/requests", include_in_schema=False)
+    async def api_user_list_requests(request: Request) -> Response:
+        user, _ = get_request_user(request)
+        if not user:
+            return JSONResponse({"error": "ابتدا وارد حساب کاربری شوید."}, status_code=401)
+        items = portal.list_user_requests(user["id"], workspaces)
+        return JSONResponse({"items": items, "wallet": portal.get_wallet(user["id"])})
+
+    @app.post("/api/user/requests", include_in_schema=False)
+    async def api_user_create_request(request: Request) -> Response:
+        user, _ = get_request_user(request)
+        if not user:
+            return JSONResponse({"error": "ابتدا وارد حساب کاربری شوید."}, status_code=401)
+        data = await request.json()
+        platform = (data.get("platform") or "auto").strip()
+        raw_input = (data.get("raw_input") or "").strip()
+        title = (data.get("title") or "").strip()
+        user_note = (data.get("user_note") or "").strip()
+        try:
+            created = portal.create_request(
+                user["id"],
+                platform=platform,
+                raw_input=raw_input,
+                title=title,
+                user_note=user_note,
+            )
+            return JSONResponse({"ok": True, "item": created}, status_code=201)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+
+    @app.delete("/api/user/requests/{req_id}", include_in_schema=False)
+    async def api_user_delete_request(req_id: int, request: Request) -> Response:
+        user, _ = get_request_user(request)
+        if not user:
+            return JSONResponse({"error": "ابتدا وارد حساب کاربری شوید."}, status_code=401)
+        ok = portal.delete_user_request(user["id"], req_id)
+        if not ok:
+            return JSONResponse({"error": "درخواست مورد نظر یافت نشد."}, status_code=404)
+        return JSONResponse({"ok": True})
+
+    @app.get("/api/user/results", include_in_schema=False)
+    async def api_user_results(
+        request: Request,
+        platform: str = Query(default="all"),
+        request_id: Optional[int] = Query(default=None),
+        q: str = Query(default=""),
+        date_from: str = Query(default=""),
+        date_to: str = Query(default=""),
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=20, ge=1, le=200),
+    ) -> Response:
+        user, _ = get_request_user(request)
+        if not user:
+            return JSONResponse({"error": "ابتدا وارد حساب کاربری شوید."}, status_code=401)
+        payload = portal.query_user_results(
+            user["id"],
+            workspaces,
+            platform=platform,
+            request_id=request_id,
+            q=q,
+            date_from=date_from,
+            date_to=date_to,
+            page=page,
+            page_size=page_size,
+        )
+        return JSONResponse(payload)
+
+    @app.get("/api/user/results/export.xlsx", include_in_schema=False)
+    async def api_user_results_export_excel(
+        request: Request,
+        platform: str = Query(default="all"),
+        request_id: Optional[int] = Query(default=None),
+        q: str = Query(default=""),
+        date_from: str = Query(default=""),
+        date_to: str = Query(default=""),
+    ) -> Response:
+        user, _ = get_request_user(request)
+        if not user:
+            return JSONResponse({"error": "ابتدا وارد حساب کاربری شوید."}, status_code=401)
+        payload = portal.query_user_results(
+            user["id"],
+            workspaces,
+            platform=platform,
+            request_id=request_id,
+            q=q,
+            date_from=date_from,
+            date_to=date_to,
+            export_all=True,
+        )
+        xlsx_bytes = portal.build_results_excel_bytes(payload["items"], user["username"])
+        stamp = utc_now_str().replace(" ", "_").replace(":", "")
+        return Response(
+            content=xlsx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f'attachment; filename="payeshgar_results_{stamp}.xlsx"',
+                "Cache-Control": "no-store",
+            },
+        )
+
+    @app.get("/api/user/results/export.json", include_in_schema=False)
+    async def api_user_results_export_json(
+        request: Request,
+        platform: str = Query(default="all"),
+        request_id: Optional[int] = Query(default=None),
+        q: str = Query(default=""),
+        date_from: str = Query(default=""),
+        date_to: str = Query(default=""),
+    ) -> Response:
+        user, _ = get_request_user(request)
+        if not user:
+            return JSONResponse({"error": "ابتدا وارد حساب کاربری شوید."}, status_code=401)
+        payload = portal.query_user_results(
+            user["id"],
+            workspaces,
+            platform=platform,
+            request_id=request_id,
+            q=q,
+            date_from=date_from,
+            date_to=date_to,
+            export_all=True,
+        )
+        body = json.dumps(
+            {
+                "exported_at": utc_now_str(),
+                "username": user["username"],
+                "count": len(payload["items"]),
+                "items": payload["items"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ).encode("utf-8")
+        stamp = utc_now_str().replace(" ", "_").replace(":", "")
+        return Response(
+            content=body,
+            media_type="application/json; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="payeshgar_results_{stamp}.json"',
+                "Cache-Control": "no-store",
+            },
+        )
+
+    # ---------- Admin-Only: Requests Management (/admin/requests) ----------
+    @app.get("/admin/requests", include_in_schema=False)
+    async def admin_requests_page(request: Request) -> Response:
+        user, from_fallback = get_request_user(request)
+        if not user:
+            return RedirectResponse(url="/login?next=/admin/requests", status_code=302)
+        if not auth_db.is_admin(user["id"]):
+            return RedirectResponse(url="/", status_code=302)
+        ctx = build_template_ctx(request, user)
+        resp = templates.TemplateResponse(request, "admin_requests.html", ctx)
+        if from_fallback:
+            set_session_cookie(resp, request, ctx["auth_token"])
+        return resp
+
+    @app.get("/api/admin/requests", include_in_schema=False)
+    async def api_admin_list_requests(
+        request: Request,
+        status: str = Query(default="all"),
+        platform: str = Query(default="all"),
+        q: str = Query(default=""),
+    ) -> Response:
+        _, err = _require_admin_api(request)
+        if err:
+            return err
+        users_map = {u["id"]: u for u in auth_db.list_users()}
+        all_items = portal.list_all_requests_for_admin(users_map, workspaces)
+        filtered = portal.list_all_requests_for_admin(
+            users_map, workspaces, status=status, platform=platform, q=q
+        )
+        return JSONResponse(
+            {
+                "items": filtered,
+                "summary": {
+                    "total": len(all_items),
+                    "pending": sum(1 for x in all_items if x["status"] == "pending"),
+                    "approved": sum(1 for x in all_items if x["status"] == "approved"),
+                    "rejected": sum(1 for x in all_items if x["status"] == "rejected"),
+                },
+            }
+        )
+
+    @app.put("/api/admin/requests/{req_id}", include_in_schema=False)
+    async def api_admin_update_request(req_id: int, request: Request) -> Response:
+        _, err = _require_admin_api(request)
+        if err:
+            return err
+        req_obj = portal.get_request_by_id(req_id)
+        if not req_obj:
+            return JSONResponse({"error": "درخواست یافت نشد."}, status_code=404)
+
+        data = await request.json()
+        status = data.get("status")
+        admin_reply = data.get("admin_reply")
+        add_to_collector = bool(data.get("add_to_collector", False))
+
+        collector_result = None
+        if add_to_collector:
+            try:
+                collector_result = portal.register_request_in_central_collector(req_obj, workspaces)
+                if not status:
+                    status = "approved"
+            except ValueError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=400)
+
+        try:
+            updated = portal.update_request_by_admin(
+                req_id,
+                status=status,
+                admin_reply=admin_reply,
+            )
+            return JSONResponse({"ok": True, "item": updated, "collector": collector_result})
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+
+    # ---------- Admin-Only: Coin & Accounting System (/admin/accounting) ----------
+    @app.get("/admin/accounting", include_in_schema=False)
+    async def admin_accounting_page(request: Request) -> Response:
+        user, from_fallback = get_request_user(request)
+        if not user:
+            return RedirectResponse(url="/login?next=/admin/accounting", status_code=302)
+        if not auth_db.is_admin(user["id"]):
+            return RedirectResponse(url="/", status_code=302)
+        ctx = build_template_ctx(request, user)
+        resp = templates.TemplateResponse(request, "admin_accounting.html", ctx)
+        if from_fallback:
+            set_session_cookie(resp, request, ctx["auth_token"])
+        return resp
+
+    @app.get("/api/admin/accounting/users", include_in_schema=False)
+    async def api_admin_accounting_users(request: Request) -> Response:
+        _, err = _require_admin_api(request)
+        if err:
+            return err
+        users = auth_db.list_users()
+        items = []
+        for u in users:
+            w = portal.get_wallet(u["id"])
+            reqs = portal.list_user_requests(u["id"], workspaces)
+            items.append(
+                {
+                    **u,
+                    "is_admin": "admin" in (u.get("roles") or []),
+                    "wallet": w,
+                    "requests_count": len(reqs),
+                }
+            )
+        return JSONResponse(items)
+
+    @app.post("/api/admin/accounting/users/{uid}/charge", include_in_schema=False)
+    async def api_admin_charge_user(uid: int, request: Request) -> Response:
+        admin_user, err = _require_admin_api(request)
+        if err:
+            return err
+        target = auth_db.get_user_any_status(uid)
+        if not target:
+            return JSONResponse({"error": "کاربر مورد نظر یافت نشد."}, status_code=404)
+        data = await request.json()
+        try:
+            amount = float(data.get("amount", 0))
+            desc = (data.get("description") or "").strip()
+            wallet = portal.adjust_coins(
+                uid,
+                amount=amount,
+                description=desc,
+                actor=admin_user["username"] if admin_user else "admin",
+            )
+            return JSONResponse({"ok": True, "wallet": wallet})
+        except (ValueError, TypeError) as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+
+    @app.put("/api/admin/accounting/users/{uid}/rate", include_in_schema=False)
+    async def api_admin_set_user_rate(uid: int, request: Request) -> Response:
+        admin_user, err = _require_admin_api(request)
+        if err:
+            return err
+        target = auth_db.get_user_any_status(uid)
+        if not target:
+            return JSONResponse({"error": "کاربر مورد نظر یافت نشد."}, status_code=404)
+        data = await request.json()
+        try:
+            posts_per_coin = int(data.get("posts_per_coin", 100))
+            coins_per_batch = float(data.get("coins_per_batch", 1))
+            wallet = portal.set_user_rate(
+                uid,
+                posts_per_coin=posts_per_coin,
+                coins_per_batch=coins_per_batch,
+                actor=admin_user["username"] if admin_user else "admin",
+            )
+            return JSONResponse({"ok": True, "wallet": wallet})
+        except (ValueError, TypeError) as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+
+    @app.get("/api/admin/accounting/transactions", include_in_schema=False)
+    async def api_admin_accounting_transactions(
+        request: Request,
+        user_id: Optional[int] = Query(default=None),
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> Response:
+        _, err = _require_admin_api(request)
+        if err:
+            return err
+        users_map = {u["id"]: u["username"] for u in auth_db.list_users()}
+        txs = portal.list_transactions(user_id=user_id, limit=limit)
+        for t in txs:
+            t["username"] = users_map.get(int(t["user_id"]), f"user_{t['user_id']}")
+        return JSONResponse(txs)
+
+    # ---------- Admin-Only: User Workspaces Inspector (/workspaces) ----------
     @app.get("/workspaces", include_in_schema=False)
     async def workspaces_page(request: Request) -> Response:
         user, from_fallback = get_request_user(request)
@@ -846,32 +1201,17 @@ def create_payeshgar_app(
             return RedirectResponse(url="/login?next=/workspaces", status_code=302)
         if not auth_db.is_admin(user["id"]):
             return RedirectResponse(url="/", status_code=302)
-        perms = auth_db.get_user_permissions(user["id"])
-        token = make_auth_token(user["id"])
-        resp = templates.TemplateResponse(
-            request,
-            "workspaces.html",
-            {
-                "user": user,
-                "perms": perms,
-                "is_admin": True,
-                "auth_token": token,
-            },
-        )
+        ctx = build_template_ctx(request, user)
+        resp = templates.TemplateResponse(request, "workspaces.html", ctx)
         if from_fallback:
-            set_session_cookie(resp, request, token)
+            set_session_cookie(resp, request, ctx["auth_token"])
         return resp
 
     @app.get("/api/workspaces/users", include_in_schema=False)
     async def api_workspaces_users(request: Request) -> Response:
-        user, _ = get_request_user(request)
-        if not user:
-            return JSONResponse({"error": "ابتدا وارد حساب کاربری شوید."}, status_code=401)
-        if not auth_db.is_admin(user["id"]):
-            return JSONResponse(
-                {"error": "فقط ادمین سیستم مجاز به مشاهده و مدیریت محیط کاربری کاربران است."},
-                status_code=403,
-            )
+        _, err = _require_admin_api(request)
+        if err:
+            return err
         users = auth_db.list_users()
         items = []
         for u in users:
@@ -879,73 +1219,75 @@ def create_payeshgar_app(
             items.append({**u, "workspace": summary})
         return JSONResponse(items)
 
-    # ---------- Admin ACL Panel & APIs ----------
+    # ---------- Admin-Only: Users & Roles Panel (/admin) ----------
     @app.get("/admin", include_in_schema=False)
     async def admin_page(request: Request) -> Response:
         user, from_fallback = get_request_user(request)
         if not user:
             return RedirectResponse(url="/login?next=/admin", status_code=302)
-        perms = auth_db.get_user_permissions(user["id"])
-        if "admin.access" not in perms:
+        if not auth_db.is_admin(user["id"]):
             return RedirectResponse(url="/", status_code=302)
-        token = make_auth_token(user["id"])
-        resp = templates.TemplateResponse(
-            request,
-            "admin.html",
-            {
-                "user": user,
-                "perms": perms,
-                "is_admin": auth_db.is_admin(user["id"]),
-                "auth_token": token,
-            },
-        )
+        ctx = build_template_ctx(request, user)
+        resp = templates.TemplateResponse(request, "admin.html", ctx)
         if from_fallback:
-            set_session_cookie(resp, request, token)
+            set_session_cookie(resp, request, ctx["auth_token"])
         return resp
-
-    def _require_api_perm(request: Request, perm: str) -> tuple[Optional[Dict[str, Any]], Optional[JSONResponse]]:
-        user, _ = get_request_user(request)
-        if not user:
-            return None, JSONResponse({"error": "ابتدا وارد حساب کاربری شوید."}, status_code=401)
-        perms = auth_db.get_user_permissions(user["id"])
-        if perm not in perms:
-            return None, JSONResponse({"error": f"شما دسترسی لازم («{perm}») را ندارید."}, status_code=403)
-        return user, None
 
     @app.get("/api/admin/permissions", include_in_schema=False)
     async def api_admin_permissions(request: Request) -> Response:
-        _, err = _require_api_perm(request, "admin.access")
+        _, err = _require_admin_api(request)
         if err:
             return err
         return JSONResponse(auth_db.list_permissions())
 
     @app.get("/api/admin/users", include_in_schema=False)
     async def api_admin_users(request: Request) -> Response:
-        _, err = _require_api_perm(request, "users.view")
+        _, err = _require_admin_api(request)
         if err:
             return err
-        return JSONResponse(auth_db.list_users())
+        users = auth_db.list_users()
+        for u in users:
+            u["wallet"] = portal.get_wallet(u["id"])
+        return JSONResponse(users)
 
     @app.post("/api/admin/users", include_in_schema=False)
     async def api_admin_create_user(request: Request) -> Response:
-        _, err = _require_api_perm(request, "users.create")
+        admin_user, err = _require_admin_api(request)
         if err:
             return err
         data = await request.json()
         username = (data.get("username") or "").strip()
         password = data.get("password") or ""
-        roles = data.get("roles") or []
+        roles = data.get("roles") or ["user"]
         if not username or not password:
             return JSONResponse({"error": "نام کاربری و رمز عبور الزامی است."}, status_code=400)
         try:
             uid = auth_db.create_user(username, password, roles)
-            return JSONResponse({"ok": True, "id": uid})
+            actor = admin_user["username"] if admin_user else "admin"
+            if data.get("posts_per_coin"):
+                portal.set_user_rate(
+                    uid,
+                    posts_per_coin=max(1, int(data["posts_per_coin"])),
+                    coins_per_batch=float(data.get("coins_per_batch") or 1),
+                    actor=actor,
+                )
+            initial_coins = float(data.get("initial_coins") or 0)
+            if initial_coins > 0:
+                portal.adjust_coins(
+                    uid,
+                    amount=initial_coins,
+                    description="شارژ اولیه هنگام ایجاد حساب کاربری",
+                    actor=actor,
+                )
+            return JSONResponse({"ok": True, "id": uid, "wallet": portal.get_wallet(uid)})
         except sqlite3.IntegrityError:
             return JSONResponse({"error": "این نام کاربری قبلاً ثبت شده است."}, status_code=400)
+        except (ValueError, TypeError) as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
 
     @app.put("/api/admin/users/{uid}", include_in_schema=False)
     async def api_admin_update_user(uid: int, request: Request) -> Response:
-        _, err = _require_api_perm(request, "users.edit")
+        _, err = _require_admin_api(request)
         if err:
             return err
         data = await request.json()
@@ -961,28 +1303,26 @@ def create_payeshgar_app(
 
     @app.delete("/api/admin/users/{uid}", include_in_schema=False)
     async def api_admin_delete_user(uid: int, request: Request) -> Response:
-        me, err = _require_api_perm(request, "users.delete")
+        me, err = _require_admin_api(request)
         if err:
             return err
         if me and me["id"] == uid:
             return JSONResponse({"error": "نمی‌توانید حساب کاربری خودتان را حذف کنید."}, status_code=400)
         workspaces.stop_user(uid)
+        portal.delete_user_data(uid)
         auth_db.delete_user(uid)
         return JSONResponse({"ok": True})
 
     @app.get("/api/admin/roles", include_in_schema=False)
     async def api_admin_roles(request: Request) -> Response:
-        user, _ = get_request_user(request)
-        if not user:
-            return JSONResponse({"error": "ابتدا وارد شوید."}, status_code=401)
-        perms = auth_db.get_user_permissions(user["id"])
-        if "roles.view" not in perms and "users.view" not in perms:
-            return JSONResponse({"error": "دسترسی ندارید."}, status_code=403)
+        _, err = _require_admin_api(request)
+        if err:
+            return err
         return JSONResponse(auth_db.list_roles())
 
     @app.post("/api/admin/roles", include_in_schema=False)
     async def api_admin_create_role(request: Request) -> Response:
-        _, err = _require_api_perm(request, "roles.create")
+        _, err = _require_admin_api(request)
         if err:
             return err
         data = await request.json()
@@ -999,7 +1339,7 @@ def create_payeshgar_app(
 
     @app.put("/api/admin/roles/{rid}", include_in_schema=False)
     async def api_admin_update_role(rid: int, request: Request) -> Response:
-        _, err = _require_api_perm(request, "roles.edit")
+        _, err = _require_admin_api(request)
         if err:
             return err
         data = await request.json()
@@ -1014,7 +1354,7 @@ def create_payeshgar_app(
 
     @app.delete("/api/admin/roles/{rid}", include_in_schema=False)
     async def api_admin_delete_role(rid: int, request: Request) -> Response:
-        _, err = _require_api_perm(request, "roles.delete")
+        _, err = _require_admin_api(request)
         if err:
             return err
         ok, msg = auth_db.delete_role(rid)
@@ -1022,26 +1362,24 @@ def create_payeshgar_app(
             return JSONResponse({"error": msg or "خطا در حذف نقش"}, status_code=400)
         return JSONResponse({"ok": True})
 
-    # ---------- Sub-Application Entry HTML Routes ----------
+    # ---------- Admin-Only Sub-Application Entry HTML Routes ----------
     def _serve_module_home(mod: str, request: Request) -> Response:
         user, _ = get_request_user(request)
         if not user:
             return RedirectResponse(url=f"/login?next=/{mod}/", status_code=302)
-        perms = auth_db.get_user_permissions(user["id"])
-        if f"{mod}.view" not in perms:
+        if not auth_db.is_admin(user["id"]):
             return RedirectResponse(url="/", status_code=302)
 
-        is_admin = auth_db.is_admin(user["id"])
+        perms = auth_db.get_user_permissions(user["id"])
         raw_as_user = (request.query_params.get("as_user") or "").strip()
         inspector_target = None
         all_users = None
         if raw_as_user:
-            target_user, ws_err, _ = resolve_target_workspace_user(request, user)
+            _, target_user, ws_err, _ = resolve_target_workspace_user(request)
             if ws_err or not target_user:
                 return RedirectResponse(url="/", status_code=302)
-            if is_admin:
-                inspector_target = target_user
-                all_users = auth_db.list_users()
+            inspector_target = target_user
+            all_users = auth_db.list_users()
 
         token = make_auth_token(user["id"])
         rendered = render_subapp_index(
@@ -1050,7 +1388,7 @@ def create_payeshgar_app(
             user,
             perms,
             token,
-            is_admin=is_admin,
+            is_admin=True,
             target_user=inspector_target,
             all_users=all_users,
         )
@@ -1089,7 +1427,7 @@ def create_payeshgar_app(
         return {
             "status": "ok",
             "app": "payeshgar",
-            "version": "2.1.0",
+            "version": "3.0.0",
             "pid": os.getpid(),
             "schedulers": {
                 "web": workspaces.get_runtime(1, "web").scheduler.is_running,

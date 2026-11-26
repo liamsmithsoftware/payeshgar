@@ -1,136 +1,232 @@
 {% extends "base.html" %}
-{% block title %}پایشگر | داشبورد محیط‌های پایش{% endblock %}
+{% block title %}پایشگر | پیشخوان سامانه{% endblock %}
 {% block content %}
+
+{% if is_admin %}
 <section class="hero" aria-labelledby="heroTitle">
-  <h1 id="heroTitle">خوش آمدید، <span><bdi>{{ user.username }}</bdi></span></h1>
-  <p>بخش‌های زیر بر اساس نقش‌ها و دسترسی‌های حساب کاربری شما فعال شده‌اند. با انتخاب هر محیط، وارد سامانه کامل و مستقل همان بخش خواهید شد.</p>
-  {% if roles %}
-  <div class="hero-roles" aria-label="نقش‌های اختصاص‌یافته">
-    {% for r in roles %}
-      <span class="badge ok">🛡️ نقش: <bdi>{{ r.name }}</bdi>{% if r.description %} ({{ r.description }}){% endif %}</span>
-    {% endfor %}
+  <h1 id="heroTitle">پنل مدیریت کل، <span><bdi>{{ user.username }}</bdi></span></h1>
+  <p>تمامی سامانه‌های خزشگر وب، تلگرام و ایکس، بررسی و پاسخ‌دهی به درخواست‌های پایش کاربران و نظام حسابرسی و شارژ سکه در اختیار شماست.</p>
+  <div class="hero-roles">
+    <span class="badge ok">🛡️ مدیر کل سیستم (<bdi>Admin</bdi>)</span>
+    {% if pending_requests_count %}
+      <a href="/admin/requests" class="badge warn" style="text-decoration:none">🔔 <span class="tabular">{{ pending_requests_count }}</span> درخواست جدید در انتظار پاسخ</a>
+    {% endif %}
   </div>
-  {% endif %}
 </section>
 
-{% set has_any_section = ('web.view' in perms) or ('telegram.view' in perms) or ('x.view' in perms) or ('admin.access' in perms) or is_admin %}
+<section class="cards" aria-label="بخش‌های مدیریتی ادمین">
+  <a href="/web/" class="env-card">
+    <div class="env-icon web" aria-hidden="true">🌐</div>
+    <h3>
+      <span>محیط وب</span>
+      <small><bdi>Website Collector</bdi></small>
+    </h3>
+    <p>آرشیو هوشمند مطالب وب‌سایت‌ها (به‌غیر از ایکس و تلگرام)، فیدهای <bdi>RSS/Atom</bdi>، وردپرس، زمان‌بند خودکار، پروکسی اختصاصی و خروجی <bdi>Excel / SQLite</bdi>.</p>
+    <span class="go">
+      <span>ورود به سامانه کامل وب</span>
+      <span class="dir-icon" aria-hidden="true">→</span>
+    </span>
+  </a>
 
-{% if not has_any_section %}
-  <div class="panel empty-state" style="max-inline-size:560px;margin-inline:auto;margin-block-start:24px">
-    <div class="empty-icon" aria-hidden="true">🔒</div>
-    <h3>هیچ بخشی برای حساب شما فعال نیست</h3>
-    <p>در حال حاضر هیچ دسترسی‌ای به حساب کاربری شما اختصاص نیافته است. لطفاً برای دریافت نقش و دسترسی با مدیر سیستم تماس بگیرید.</p>
-    <a href="/logout" class="btn btn-ghost">🚪 خروج و ورود با حساب دیگر</a>
-  </div>
+  <a href="/telegram/" class="env-card">
+    <div class="env-icon telegram" aria-hidden="true">✈️</div>
+    <h3>
+      <span>محیط تلگرام</span>
+      <small><bdi>Telegram Collector</bdi></small>
+    </h3>
+    <p>آرشیو هوشمند کانال‌های عمومی و خصوصی تلگرام (وب + <bdi>Telethon</bdi>)، زمان‌بند خودکار، جلوگیری از تکرار با شناسه پیام و خروجی <bdi>Excel / SQLite</bdi>.</p>
+    <span class="go">
+      <span>ورود به سامانه کامل تلگرام</span>
+      <span class="dir-icon" aria-hidden="true">→</span>
+    </span>
+  </a>
+
+  <a href="/x/" class="env-card">
+    <div class="env-icon x" aria-hidden="true">𝕏</div>
+    <h3>
+      <span>محیط ایکس</span>
+      <small><bdi>X Collector</bdi></small>
+    </h3>
+    <p>آرشیو هوشمند حساب‌های شبکه ایکس (فقط لینک‌های <bdi>x.com</bdi> و <bdi>twitter.com</bdi>)، پایش زمان‌بندی‌شده، نشانگر ضدتکرار و خروجی <bdi>Excel / SQLite</bdi>.</p>
+    <span class="go">
+      <span>ورود به سامانه کامل ایکس</span>
+      <span class="dir-icon" aria-hidden="true">→</span>
+    </span>
+  </a>
+
+  <a href="/admin/requests" class="env-card">
+    <div class="env-icon" style="background:linear-gradient(135deg,#10b981,#059669)" aria-hidden="true">📩</div>
+    <h3>
+      <span>درخواست‌های پایش کاربران</span>
+      <small><bdi>User Requests</bdi></small>
+    </h3>
+    <p>مشاهده درخواست‌های ثبت‌شده توسط کاربران (سایت، تلگرام، ایکس)، تشخیص منابع مشترک، افزودن تک‌کلیکی به فهرست پایش و ارسال پاسخ مستقیم به هر کاربر.</p>
+    <div class="env-perms">
+      <span class="badge ok">کل درخواست‌ها: <span class="tabular">{{ total_requests_count or 0 }}</span></span>
+      <span class="badge {% if pending_requests_count %}warn{% else %}ok{% endif %}">در انتظار: <span class="tabular">{{ pending_requests_count or 0 }}</span></span>
+    </div>
+    <span class="go">
+      <span>مدیریت و پاسخ به درخواست‌ها</span>
+      <span class="dir-icon" aria-hidden="true">→</span>
+    </span>
+  </a>
+
+  <a href="/admin/accounting" class="env-card">
+    <div class="env-icon workspaces" aria-hidden="true">🪙</div>
+    <h3>
+      <span>سیستم حسابرسی و سکه</span>
+      <small><bdi>Coin & Billing</bdi></small>
+    </h3>
+    <p>شارژ یا کسر سکه برای هر کاربر، تعیین اختصاصی نسبت تعداد خبر به سکه به ازای هر کاربر (مثلاً هر ۱۰۰ خبر = ۱ سکه) و مشاهده کامل دفتر کل تراکنش‌ها.</p>
+    <div class="env-perms">
+      <span class="badge ok">⚡ شارژ آنی</span>
+      <span class="badge ok">⚖️ نرخ اختصاصی هر کاربر</span>
+    </div>
+    <span class="go">
+      <span>ورود به بخش حسابرسی و شارژ</span>
+      <span class="dir-icon" aria-hidden="true">→</span>
+    </span>
+  </a>
+
+  <a href="/admin" class="env-card">
+    <div class="env-icon acl" aria-hidden="true">👥</div>
+    <h3>
+      <span>مدیریت کاربران و نقش‌ها</span>
+      <small><bdi>Users & Roles</bdi></small>
+    </h3>
+    <p>تعریف حساب کاربری برای کاربران عادی یا مدیران، تعیین شارژ اولیه و نرخ سکه هنگام ساخت کاربر، فعال/غیرفعال‌سازی و مدیریت نقش‌ها.</p>
+    <span class="go">
+      <span>مدیریت کاربران</span>
+      <span class="dir-icon" aria-hidden="true">→</span>
+    </span>
+  </a>
+
+  <a href="/workspaces" class="env-card">
+    <div class="env-icon" style="background:linear-gradient(135deg,#6366f1,#4f46e5)" aria-hidden="true">👁️</div>
+    <h3>
+      <span>محیط کاربری کاربران</span>
+      <small><bdi>Admin User Workspaces</bdi></small>
+    </h3>
+    <p>مشاهده، خروجی‌گیری مستقیم (<bdi>Excel / SQLite / JSON</bdi>) و مدیریت پایگاه‌های داده مجزای هر کاربر.</p>
+    <span class="go">
+      <span>مشاهده محیط‌ها</span>
+      <span class="dir-icon" aria-hidden="true">→</span>
+    </span>
+  </a>
+</section>
+
 {% else %}
-  <section class="cards" aria-label="محیط‌های فعال پایشگر">
-    {% if 'web.view' in perms %}
-    <a href="/web/" class="env-card">
-      <div class="env-icon web" aria-hidden="true">🌐</div>
-      <h3>
-        <span>محیط وب</span>
-        <small><bdi>Website Collector</bdi></small>
-      </h3>
-      <p>آرشیو هوشمند مطالب وب‌سایت‌ها (به‌غیر از ایکس و تلگرام)، فیدهای <bdi>RSS/Atom</bdi>، وردپرس، زمان‌بند خودکار، پروکسی اختصاصی هر سایت و خروجی <bdi>Excel / SQLite</bdi>.</p>
-      <div class="env-perms">
-        <span class="badge ok">👁 مشاهده</span>
-        {% if 'web.sources' in perms %}<span class="badge ok">➕ منابع</span>{% endif %}
-        {% if 'web.crawl' in perms %}<span class="badge ok">🚀 همگام‌سازی</span>{% endif %}
-        {% if 'web.export' in perms %}<span class="badge ok">📊 خروجی</span>{% endif %}
-        {% if 'web.settings' in perms %}<span class="badge ok">🔧 تنظیمات</span>{% endif %}
-        {% if 'web.delete' in perms %}<span class="badge ok">🗑 حذف/پاک‌سازی</span>{% endif %}
-      </div>
-      <span class="go">
-        <span>ورود به سامانه کامل وب</span>
-        <span class="dir-icon" aria-hidden="true">→</span>
-      </span>
-    </a>
-    {% endif %}
+<!-- REGULAR USER PORTAL -->
+<section class="hero" aria-labelledby="userHeroTitle">
+  <h1 id="userHeroTitle">خوش آمدید، <span><bdi>{{ user.username }}</bdi></span></h1>
+  <p>در این سامانه می‌توانید سایت‌ها، کانال‌های تلگرام و صفحات ایکس مورد نظرتان را برای پایش درخواست دهید و نتایج اختصاصی درخواست‌های خود را جستجو، فیلتر و دریافت نمایید.</p>
+</section>
 
-    {% if 'telegram.view' in perms %}
-    <a href="/telegram/" class="env-card">
-      <div class="env-icon telegram" aria-hidden="true">✈️</div>
-      <h3>
-        <span>محیط تلگرام</span>
-        <small><bdi>Telegram Collector</bdi></small>
-      </h3>
-      <p>آرشیو هوشمند کانال‌های عمومی و خصوصی تلگرام (وب + <bdi>Telethon</bdi>)، زمان‌بند خودکار، جلوگیری از تکرار با شناسه پیام، پشتیبان‌گیری و خروجی <bdi>Excel / SQLite</bdi>.</p>
-      <div class="env-perms">
-        <span class="badge ok">👁 مشاهده</span>
-        {% if 'telegram.sources' in perms %}<span class="badge ok">➕ کانال‌ها</span>{% endif %}
-        {% if 'telegram.crawl' in perms %}<span class="badge ok">🚀 همگام‌سازی</span>{% endif %}
-        {% if 'telegram.export' in perms %}<span class="badge ok">📊 خروجی</span>{% endif %}
-        {% if 'telegram.settings' in perms %}<span class="badge ok">🔧 تنظیمات/<bdi>Telethon</bdi></span>{% endif %}
-        {% if 'telegram.delete' in perms %}<span class="badge ok">🗑 حذف/پاک‌سازی</span>{% endif %}
-      </div>
-      <span class="go">
-        <span>ورود به سامانه کامل تلگرام</span>
-        <span class="dir-icon" aria-hidden="true">→</span>
-      </span>
-    </a>
-    {% endif %}
+<section class="panel" style="margin-block-end:24px" aria-labelledby="walletPanelTitle">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-block-end:12px">
+    <h2 id="walletPanelTitle" style="margin:0">🪙 وضعیت حساب و سهمیه سکه‌های شما</h2>
+    <span class="badge ok">تعرفه حساب شما: هر <span class="tabular">{{ wallet.posts_per_coin }}</span> خبر = <span class="tabular">{{ wallet.coins_per_batch }}</span> سکه</span>
+  </div>
 
-    {% if 'x.view' in perms %}
-    <a href="/x/" class="env-card">
-      <div class="env-icon x" aria-hidden="true">𝕏</div>
-      <h3>
-        <span>محیط ایکس</span>
-        <small><bdi>X Collector</bdi></small>
-      </h3>
-      <p>آرشیو هوشمند حساب‌های شبکه ایکس (فقط لینک‌های <bdi>x.com</bdi> و <bdi>twitter.com</bdi>)، پایش زمان‌بندی‌شده، نشانگر ضدتکرار، پشتیبان‌گیری و خروجی <bdi>Excel / SQLite</bdi>.</p>
-      <div class="env-perms">
-        <span class="badge ok">👁 مشاهده</span>
-        {% if 'x.sources' in perms %}<span class="badge ok">➕ حساب‌ها</span>{% endif %}
-        {% if 'x.crawl' in perms %}<span class="badge ok">🚀 همگام‌سازی</span>{% endif %}
-        {% if 'x.export' in perms %}<span class="badge ok">📊 خروجی</span>{% endif %}
-        {% if 'x.settings' in perms %}<span class="badge ok">🔧 تنظیمات</span>{% endif %}
-        {% if 'x.delete' in perms %}<span class="badge ok">🗑 حذف/پاک‌سازی</span>{% endif %}
-      </div>
-      <span class="go">
-        <span>ورود به سامانه کامل ایکس</span>
-        <span class="dir-icon" aria-hidden="true">→</span>
-      </span>
-    </a>
-    {% endif %}
+  {% if wallet.coin_balance <= 0 %}
+  <div class="alert alert-error" role="status">
+    <span>⚠️ موجودی سکه حساب شما صفر است. شما همچنان می‌توانید درخواست‌های جدید ثبت کنید و اخبار قبلی خود را ببینید؛ برای دریافت اخبار جدید لطفاً با ادمین جهت شارژ حساب هماهنگ فرمایید.</span>
+  </div>
+  {% endif %}
 
-    {% if is_admin %}
-    <a href="/workspaces" class="env-card">
-      <div class="env-icon workspaces" aria-hidden="true">👁️</div>
-      <h3>
-        <span>محیط کاربری کاربران</span>
-        <small><bdi>Admin User Workspaces</bdi></small>
-      </h3>
-      <p>ویژه ادمین: انتخاب هر کاربر و مشاهده مجزای محیط وب، تلگرام و ایکس همان کاربر، دریافت خروجی‌های مستقیم (<bdi>Excel</bdi>، <bdi>SQLite</bdi>، <bdi>JSON</bdi>) و ویرایش کامل اطلاعات محیط او.</p>
-      <div class="env-perms">
-        <span class="badge ok">👤 تفکیک کامل هر کاربر</span>
-        <span class="badge ok">📊 خروجی مستقیم اکسل / <bdi>SQLite</bdi></span>
-        <span class="badge ok">✏️ ورود و ویرایش کامل</span>
-      </div>
-      <span class="go">
-        <span>ورود به مدیریت محیط کاربران</span>
-        <span class="dir-icon" aria-hidden="true">→</span>
-      </span>
-    </a>
-    {% endif %}
+  <div class="stats-row" style="margin-block-end:12px">
+    <div class="stat-box">
+      <div class="num tabular" style="color:#fbbf24">{{ wallet.coin_balance }} <small style="font-size:13px;color:var(--muted)">سکه</small></div>
+      <div class="lbl">موجودی فعلی حساب</div>
+    </div>
+    <div class="stat-box">
+      <div class="num tabular" style="color:#4ade80">{{ wallet.remaining_posts_allowance }} <small style="font-size:13px;color:var(--muted)">خبر</small></div>
+      <div class="lbl">ظرفیت دریافت خبر جدید با موجودی فعلی</div>
+    </div>
+    <div class="stat-box">
+      <div class="num tabular">{{ wallet.total_delivered_posts }}</div>
+      <div class="lbl">کل اخبار و داده‌های نمایش‌داده‌شده به شما</div>
+    </div>
+    <div class="stat-box">
+      <div class="num tabular">{{ user_requests_total or 0 }}</div>
+      <div class="lbl">منابع درخواستی ثبت‌شده شما</div>
+    </div>
+  </div>
 
-    {% if 'admin.access' in perms %}
-    <a href="/admin" class="env-card">
-      <div class="env-icon acl" aria-hidden="true">⚙️</div>
-      <h3>
-        <span>پنل مدیریت <bdi>ACL</bdi></span>
-        <small><bdi>Users & Roles</bdi></small>
-      </h3>
-      <p>مدیریت کاربران، تعریف نقش‌های دلخواه و تخصیص ۲۷ سطح دسترسی جزئی (از مشاهده کلی تا اکشن‌های افزودن، همگام‌سازی، خروجی، تنظیمات و حذف).</p>
-      <div class="env-perms">
-        {% if 'users.view' in perms %}<span class="badge ok">👥 مدیریت کاربران</span>{% endif %}
-        {% if 'roles.view' in perms %}<span class="badge ok">🛡️ مدیریت نقش‌ها</span>{% endif %}
-      </div>
-      <span class="go">
-        <span>ورود به پنل مدیریت</span>
-        <span class="dir-icon" aria-hidden="true">→</span>
-      </span>
-    </a>
-    {% endif %}
-  </section>
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding-block:10px;padding-inline:14px">
+    <div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);margin-block-end:6px;flex-wrap:wrap;gap:8px">
+      <span>شمارنده چرخه جاری کسر سکه:</span>
+      <span class="tabular"><strong style="color:var(--text)">{{ wallet.unbilled_posts }}</strong> از <strong>{{ wallet.posts_per_coin }}</strong> خبر تا کسر {{ wallet.coins_per_batch }} سکه بعدی</span>
+    </div>
+    <div style="inline-size:100%;block-size:8px;background:var(--card2);border-radius:999px;overflow:hidden">
+      <div style="inline-size:{{ wallet.progress_percent }}%;block-size:100%;background:linear-gradient(90deg,#3b82f6,#06b6d4);border-radius:999px"></div>
+    </div>
+  </div>
+</section>
+
+<section class="cards" style="margin-block-start:0;margin-block-end:24px" aria-label="بخش‌های کاربری">
+  <a href="/requests" class="env-card">
+    <div class="env-icon web" aria-hidden="true">📝</div>
+    <h3>
+      <span>درخواست‌های پایش من</span>
+      <small><bdi>Monitoring Requests</bdi></small>
+    </h3>
+    <p>ثبت درخواست پایش برای وب‌سایت‌ها، کانال‌های تلگرام و صفحات ایکس مورد نظر و مشاهده وضعیت بررسی و پاسخ مستقیم ادمین به هر درخواست.</p>
+    <span class="go">
+      <span>ثبت و پیگیری درخواست‌ها</span>
+      <span class="dir-icon" aria-hidden="true">→</span>
+    </span>
+  </a>
+
+  <a href="/results" class="env-card">
+    <div class="env-icon" style="background:linear-gradient(135deg,#10b981,#059669)" aria-hidden="true">📰</div>
+    <h3>
+      <span>نتایج و خروجی درخواست‌ها</span>
+      <small><bdi>Results & Export</bdi></small>
+    </h3>
+    <p>مشاهده مجزای اخبار و مطالب جمع‌آوری‌شده صرفاً برای منابع درخواستی شما، همراه با جستجوی متنی، فیلتر پلتفرم/منبع/تاریخ و خروجی اکسل (<bdi>.xlsx</bdi>) و <bdi>JSON</bdi>.</p>
+    <span class="go">
+      <span>مشاهده و دریافت نتایج</span>
+      <span class="dir-icon" aria-hidden="true">→</span>
+    </span>
+  </a>
+</section>
+
+{% if recent_transactions %}
+<section class="panel" aria-labelledby="txHistoryTitle">
+  <h2 id="txHistoryTitle">📋 آخرین تراکنش‌های سکه و حسابرسی شما</h2>
+  <div class="table-wrap" style="margin-block-start:12px">
+    <table>
+      <thead>
+        <tr>
+          <th>زمان ثبت</th>
+          <th>شرح عملیات</th>
+          <th>تغییر سکه</th>
+          <th>مانده سکه</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for tx in recent_transactions %}
+        <tr>
+          <td><span class="mono tabular">{{ tx.created_at }}</span></td>
+          <td>{{ tx.description }}</td>
+          <td class="tabular">
+            {% if tx.amount > 0 %}
+              <span class="badge ok"><bdi>+{{ tx.amount }}</bdi> سکه</span>
+            {% elif tx.amount < 0 %}
+              <span class="badge err"><bdi>{{ tx.amount }}</bdi> سکه</span>
+            {% else %}
+              <span class="badge">تغییر تعرفه</span>
+            {% endif %}
+          </td>
+          <td class="tabular"><strong>{{ tx.balance_after }}</strong> سکه</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endif %}
+{% endif %}
+
 {% endblock %}

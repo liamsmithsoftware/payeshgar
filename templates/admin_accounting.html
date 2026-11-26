@@ -1,0 +1,382 @@
+{% extends "base.html" %}
+{% block title %}سیستم حسابرسی و سکه | پایشگر{% endblock %}
+{% block content %}
+<section class="panel" style="margin-block-end:24px" aria-labelledby="accHeading">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+    <div>
+      <h1 id="accHeading" style="font-size:22px;font-weight:900;margin-block-end:8px">🪙 سیستم حسابرسی، شارژ سکه و تعرفه کاربران</h1>
+      <p class="sub" style="margin-block-end:0">
+        در این بخش موجودی سکه هر کاربر را شارژ یا اصلاح کنید و به ازای هر کاربر به‌صورت مستقل تعیین نمایید که نمایش هر چند خبر و داده معادل چند سکه محاسبه شود.
+      </p>
+    </div>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="loadAccountingAll(true)">🔄 بروزرسانی</button>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-box"><div class="num tabular" id="accTotalUsers">–</div><div class="lbl">کاربران عادی سامانه</div></div>
+    <div class="stat-box"><div class="num tabular" id="accTotalCoins" style="color:#fbbf24">–</div><div class="lbl">مجموع سکه‌های موجود کاربران</div></div>
+    <div class="stat-box"><div class="num tabular" id="accTotalDelivered" style="color:#4ade80">–</div><div class="lbl">کل اخبار تحویل‌داده‌شده به کاربران</div></div>
+  </div>
+</section>
+
+<section class="panel" style="margin-block-end:24px" aria-labelledby="accUsersTitle">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-block-end:14px">
+    <h2 id="accUsersTitle" style="margin:0">👥 وضعیت حساب و تعرفه سکه کاربران</h2>
+    <input type="search" id="accUserSearch" placeholder="جستجوی نام کاربری..." oninput="renderAccUsers()" style="max-inline-size:260px;min-block-size:38px;padding:6px 12px;border-radius:8px;background:var(--bg2);border:1px solid var(--border-strong);color:var(--text)">
+  </div>
+
+  <div id="accUsersWrap">
+    <div class="skeleton" style="block-size:60px;margin-block-end:10px"></div>
+    <div class="skeleton" style="block-size:60px"></div>
+  </div>
+</section>
+
+<section class="panel" aria-labelledby="accLedgerTitle">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-block-end:14px">
+    <h2 id="accLedgerTitle" style="margin:0">📜 دفتر کل حسابرسی و تراکنش‌های سکه</h2>
+    <select id="ledgerUserFilter" onchange="loadTransactions()" style="max-inline-size:240px;min-block-size:38px;padding:6px 12px;border-radius:8px;background:var(--bg2);border:1px solid var(--border-strong);color:var(--text)">
+      <option value="">همه کاربران</option>
+    </select>
+  </div>
+  <div id="accLedgerWrap">
+    <div class="skeleton" style="block-size:56px"></div>
+  </div>
+</section>
+
+<!-- Charge / Deduct Modal -->
+<div class="modal-overlay" id="chargeModal" role="dialog" aria-modal="true" aria-labelledby="chargeModalTitle" onclick="if(event.target===this)closeChargeModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="chargeModalTitle">شارژ یا کسر سکه کاربر</h3>
+      <button type="button" class="modal-close-btn" onclick="closeChargeModal()" aria-label="بستن">&times;</button>
+    </div>
+    <input type="hidden" id="cmUserId">
+    <div id="cmUserInfo" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-block-end:14px;font-size:13px"></div>
+
+    <div class="field">
+      <label for="cmAmount">مقدار تغییر سکه (عدد مثبت برای شارژ، عدد منفی برای کسر)</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-block-end:8px">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('cmAmount').value='5'">+۵ سکه</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('cmAmount').value='10'">+۱۰ سکه</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('cmAmount').value='50'">+۵۰ سکه</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('cmAmount').value='100'">+۱۰۰ سکه</button>
+        <button type="button" class="btn btn-danger btn-sm" onclick="document.getElementById('cmAmount').value='-5'">-۵ سکه</button>
+      </div>
+      <input type="number" step="any" id="cmAmount" value="10" class="input-ltr tabular">
+    </div>
+
+    <div class="field">
+      <label for="cmDesc">توضیح در دفتر حسابرسی (اختیاری)</label>
+      <input type="text" id="cmDesc" placeholder="مثلاً شارژ بسته ماهانه کاربر">
+    </div>
+
+    <div id="cmErr" aria-live="polite"></div>
+
+    <div class="modal-actions">
+      <button type="button" id="btnSaveCharge" class="btn btn-primary" onclick="submitCharge()">💾 ثبت تراکنش سکه</button>
+      <button type="button" class="btn btn-ghost" onclick="closeChargeModal()">انصراف</button>
+    </div>
+  </div>
+</div>
+
+<!-- Rate Config Modal -->
+<div class="modal-overlay" id="rateModal" role="dialog" aria-modal="true" aria-labelledby="rateModalTitle" onclick="if(event.target===this)closeRateModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="rateModalTitle">تنظیم نسبت خبر به سکه برای کاربر</h3>
+      <button type="button" class="modal-close-btn" onclick="closeRateModal()" aria-label="بستن">&times;</button>
+    </div>
+    <input type="hidden" id="rtUserId">
+    <div id="rtUserInfo" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-block-end:14px;font-size:13px"></div>
+
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-block-end:14px">
+      <button type="button" class="btn btn-ghost btn-sm" onclick="setQuickRate(50, 1)">هر ۵۰ خبر = ۱ سکه</button>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="setQuickRate(100, 1)">هر ۱۰۰ خبر = ۱ سکه</button>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="setQuickRate(200, 1)">هر ۲۰۰ خبر = ۱ سکه</button>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="setQuickRate(500, 1)">هر ۵۰۰ خبر = ۱ سکه</button>
+    </div>
+
+    <div class="row">
+      <div class="col">
+        <label for="rtPostsPerCoin">به ازای هر چند خبر و داده نمایش‌داده‌شده:</label>
+        <input type="number" min="1" step="1" id="rtPostsPerCoin" value="100" class="input-ltr tabular">
+      </div>
+      <div class="col">
+        <label for="rtCoinsPerBatch">چند سکه کسر گردد:</label>
+        <input type="number" min="0.01" step="any" id="rtCoinsPerBatch" value="1" class="input-ltr tabular">
+      </div>
+    </div>
+
+    <div id="rtErr" style="margin-block-start:12px" aria-live="polite"></div>
+
+    <div class="modal-actions">
+      <button type="button" id="btnSaveRate" class="btn btn-primary" onclick="submitRate()">💾 ذخیره تعرفه کاربر</button>
+      <button type="button" class="btn btn-ghost" onclick="closeRateModal()">انصراف</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let accUsers = [];
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+async function loadAccountingAll(notify) {
+  const res = await fetch('/api/admin/accounting/users');
+  if (res.ok) {
+    accUsers = await res.json();
+    const regularUsers = accUsers.filter(u => !u.is_admin);
+    let sumCoins = 0;
+    let sumDeliv = 0;
+    accUsers.forEach(u => {
+      sumCoins += Number(u.wallet?.coin_balance || 0);
+      sumDeliv += Number(u.wallet?.total_delivered_posts || 0);
+    });
+    document.getElementById('accTotalUsers').textContent = regularUsers.length;
+    document.getElementById('accTotalCoins').textContent = Math.round(sumCoins * 100) / 100;
+    document.getElementById('accTotalDelivered').textContent = sumDeliv;
+
+    const filterSel = document.getElementById('ledgerUserFilter');
+    const prev = filterSel.value;
+    filterSel.innerHTML = '<option value="">همه کاربران</option>' +
+      accUsers.map(u => `<option value="${u.id}">${esc(u.username)}</option>`).join('');
+    if ([...filterSel.options].some(o => o.value === prev)) filterSel.value = prev;
+
+    renderAccUsers();
+  }
+  await loadTransactions();
+  if (notify && window.showPayeshgarToast) {
+    window.showPayeshgarToast('اطلاعات حسابرسی بروزرسانی شد.', 'ok');
+  }
+}
+
+function renderAccUsers() {
+  const wrap = document.getElementById('accUsersWrap');
+  const q = (document.getElementById('accUserSearch').value || '').trim().toLowerCase();
+  const list = accUsers.filter(u => !q || u.username.toLowerCase().includes(q));
+
+  if (!list.length) {
+    wrap.innerHTML = '<div class="empty-state"><h3>کاربری یافت نشد</h3></div>';
+    return;
+  }
+
+  wrap.innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>کاربر</th>
+            <th>موجودی سکه</th>
+            <th>نسبت سکه و اخبار</th>
+            <th>اخبار تحویل‌شده / چرخه جاری</th>
+            <th>ظرفیت خبر جدید</th>
+            <th>عملیات حسابرسی</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map(u => {
+            const w = u.wallet;
+            return `
+              <tr>
+                <td>
+                  <strong><bdi>${esc(u.username)}</bdi></strong>
+                  ${u.is_admin ? '<span class="badge ok" style="margin-inline-start:4px">ادمین</span>' : '<span class="badge" style="margin-inline-start:4px">کاربر</span>'}
+                  <div style="font-size:11.5px;color:var(--muted)">درخواست‌ها: <span class="tabular">${u.requests_count}</span></div>
+                </td>
+                <td>
+                  <span class="badge ${w.coin_balance > 0 ? 'warn' : 'err'}" style="font-size:13px">
+                    🪙 <strong class="tabular">${w.coin_balance}</strong> سکه
+                  </span>
+                </td>
+                <td>
+                  <span class="badge ok">هر <strong class="tabular">${w.posts_per_coin}</strong> خبر = <strong class="tabular">${w.coins_per_batch}</strong> سکه</span>
+                </td>
+                <td class="tabular">
+                  <div>کل: <strong>${w.total_delivered_posts}</strong> خبر</div>
+                  <div style="font-size:11.5px;color:var(--muted)">چرخه جاری: ${w.unbilled_posts} / ${w.posts_per_coin}</div>
+                </td>
+                <td class="tabular">
+                  <strong>${w.remaining_posts_allowance}</strong> خبر
+                </td>
+                <td>
+                  <div class="table-actions">
+                    <button type="button" class="btn btn-primary btn-sm" onclick="openChargeModal(${u.id})">⚡ شارژ / کسر سکه</button>
+                    <button type="button" class="btn btn-ghost btn-sm" onclick="openRateModal(${u.id})">⚖️ تنظیم نسبت خبر/سکه</button>
+                  </div>
+                </td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function loadTransactions() {
+  const wrap = document.getElementById('accLedgerWrap');
+  const uid = document.getElementById('ledgerUserFilter').value;
+  const qs = uid ? ('?user_id=' + encodeURIComponent(uid)) : '';
+  const res = await fetch('/api/admin/accounting/transactions' + qs);
+  if (!res.ok) {
+    wrap.innerHTML = '<div class="alert alert-error">خطا در بارگذاری تراکنش‌ها.</div>';
+    return;
+  }
+  const txs = await res.json();
+  if (!txs.length) {
+    wrap.innerHTML = '<div class="empty-state" style="padding-block:28px"><h3>تراکنشی ثبت نشده است</h3></div>';
+    return;
+  }
+  wrap.innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>زمان</th>
+            <th>کاربر</th>
+            <th>شرح عملیات حسابرسی</th>
+            <th>مقدار تغییر</th>
+            <th>مانده پس از عملیات</th>
+            <th>ثبت‌کننده</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${txs.map(t => {
+            let badge = '<span class="badge">تغییر تعرفه</span>';
+            if (t.amount > 0) badge = `<span class="badge ok"><bdi>+${t.amount}</bdi> سکه</span>`;
+            else if (t.amount < 0) badge = `<span class="badge err"><bdi>${t.amount}</bdi> سکه</span>`;
+            return `
+              <tr>
+                <td><span class="mono tabular">${esc(t.created_at)}</span></td>
+                <td><strong><bdi>${esc(t.username)}</bdi></strong></td>
+                <td>${esc(t.description)}</td>
+                <td class="tabular">${badge}</td>
+                <td class="tabular"><strong>${t.balance_after}</strong> سکه</td>
+                <td><bdi>${esc(t.created_by)}</bdi></td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function openChargeModal(uid) {
+  const u = accUsers.find(x => x.id === uid);
+  if (!u) return;
+  document.getElementById('cmErr').innerHTML = '';
+  document.getElementById('cmUserId').value = u.id;
+  document.getElementById('cmUserInfo').innerHTML = `
+    کاربر: <strong><bdi>${esc(u.username)}</bdi></strong> | موجودی فعلی: <strong class="tabular">${u.wallet.coin_balance}</strong> سکه
+    | تعرفه فعلی: هر <strong class="tabular">${u.wallet.posts_per_coin}</strong> خبر = <strong class="tabular">${u.wallet.coins_per_batch}</strong> سکه
+  `;
+  document.getElementById('cmAmount').value = '10';
+  document.getElementById('cmDesc').value = '';
+  document.getElementById('chargeModal').classList.add('open');
+}
+
+function closeChargeModal() {
+  document.getElementById('chargeModal').classList.remove('open');
+}
+
+async function submitCharge() {
+  const uid = document.getElementById('cmUserId').value;
+  const amount = parseFloat(document.getElementById('cmAmount').value);
+  const description = document.getElementById('cmDesc').value.trim();
+  const btn = document.getElementById('btnSaveCharge');
+  const errEl = document.getElementById('cmErr');
+  errEl.innerHTML = '';
+
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/admin/accounting/users/' + uid + '/charge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount, description }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.innerHTML = `<div class="alert alert-error">${esc(data.error || 'خطا')}</div>`;
+      return;
+    }
+    closeChargeModal();
+    await loadAccountingAll(false);
+    if (window.showPayeshgarToast) {
+      window.showPayeshgarToast('تغییر موجودی سکه کاربر با موفقیت ثبت شد.', 'ok');
+    }
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function openRateModal(uid) {
+  const u = accUsers.find(x => x.id === uid);
+  if (!u) return;
+  document.getElementById('rtErr').innerHTML = '';
+  document.getElementById('rtUserId').value = u.id;
+  document.getElementById('rtUserInfo').innerHTML = `
+    کاربر: <strong><bdi>${esc(u.username)}</bdi></strong> | موجودی فعلی: <strong class="tabular">${u.wallet.coin_balance}</strong> سکه
+  `;
+  document.getElementById('rtPostsPerCoin').value = u.wallet.posts_per_coin;
+  document.getElementById('rtCoinsPerBatch').value = u.wallet.coins_per_batch;
+  document.getElementById('rateModal').classList.add('open');
+}
+
+function setQuickRate(ppc, cpb) {
+  document.getElementById('rtPostsPerCoin').value = ppc;
+  document.getElementById('rtCoinsPerBatch').value = cpb;
+}
+
+function closeRateModal() {
+  document.getElementById('rateModal').classList.remove('open');
+}
+
+async function submitRate() {
+  const uid = document.getElementById('rtUserId').value;
+  const posts_per_coin = parseInt(document.getElementById('rtPostsPerCoin').value, 10);
+  const coins_per_batch = parseFloat(document.getElementById('rtCoinsPerBatch').value);
+  const btn = document.getElementById('btnSaveRate');
+  const errEl = document.getElementById('rtErr');
+  errEl.innerHTML = '';
+
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/admin/accounting/users/' + uid + '/rate', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ posts_per_coin, coins_per_batch }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.innerHTML = `<div class="alert alert-error">${esc(data.error || 'خطا')}</div>`;
+      return;
+    }
+    closeRateModal();
+    await loadAccountingAll(false);
+    if (window.showPayeshgarToast) {
+      window.showPayeshgarToast('نسبت سکه به اخبار کاربر ذخیره شد.', 'ok');
+    }
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.addEventListener('keydown', function(ev) {
+  if (ev.key === 'Escape') {
+    closeChargeModal();
+    closeRateModal();
+  }
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+  loadAccountingAll(false);
+});
+</script>
+{% endblock %}

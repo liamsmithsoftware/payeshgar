@@ -112,9 +112,10 @@ class AuthDB:
                 (name, desc, cat),
             )
 
-        cur.execute("INSERT OR IGNORE INTO roles (name, description) VALUES (?,?)", ("admin", "مدیر کل سیستم — دسترسی کامل"))
-        cur.execute("INSERT OR IGNORE INTO roles (name, description) VALUES (?,?)", ("operator", "اپراتور پایش — مشاهده، افزودن منبع، دریافت فوری و خروجی"))
-        cur.execute("INSERT OR IGNORE INTO roles (name, description) VALUES (?,?)", ("viewer", "مشاهده‌کننده — فقط مشاهده و خروجی"))
+        cur.execute("INSERT OR IGNORE INTO roles (name, description) VALUES (?,?)", ("admin", "مدیر کل سیستم — دسترسی کامل به تمام بخش‌های مدیریتی و خزشگرها"))
+        cur.execute("INSERT OR IGNORE INTO roles (name, description) VALUES (?,?)", ("user", "کاربر عادی — ثبت درخواست پایش و دریافت نتایج اختصاصی بر اساس سهمیه سکه"))
+        cur.execute("INSERT OR IGNORE INTO roles (name, description) VALUES (?,?)", ("operator", "کاربر سطح اپراتور"))
+        cur.execute("INSERT OR IGNORE INTO roles (name, description) VALUES (?,?)", ("viewer", "کاربر مشاهده‌کننده"))
 
         # Ensure admin always holds every permission
         admin_role = cur.execute("SELECT id FROM roles WHERE name='admin'").fetchone()
@@ -243,6 +244,7 @@ class AuthDB:
         return result
 
     def create_user(self, username: str, password: str, roles: List[str]) -> int:
+        effective_roles = roles if roles else ["user"]
         conn = self.connect()
         try:
             cur = conn.execute(
@@ -250,7 +252,7 @@ class AuthDB:
                 (username, generate_password_hash(password)),
             )
             uid = cur.lastrowid
-            for rn in roles:
+            for rn in effective_roles:
                 r = conn.execute("SELECT id FROM roles WHERE name=?", (rn,)).fetchone()
                 if r:
                     conn.execute("INSERT OR IGNORE INTO user_roles (user_id, role_id) VALUES (?,?)", (uid, r["id"]))
