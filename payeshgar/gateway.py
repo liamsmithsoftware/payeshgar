@@ -168,8 +168,9 @@ def build_payeshgar_topbar_html(
     <div class="pg-topbar-inner">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
             <span class="pg-inspector-badge">👁️ حالت مدیریت ادمین</span>
-            <span>در حال مشاهده، خروجی‌گیری و ویرایش محیط کاربری: <strong style="color:#fde68a">{tname}</strong></span>
-            <select onchange="window.payeshgarNav('/{mod}/?as_user=' + this.value)" class="pg-ws-select" title="تغییر سریع کاربر">
+            <span>در حال مشاهده، خروجی‌گیری و ویرایش محیط کاربری: <strong style="color:#fde68a"><bdi>{tname}</bdi></strong></span>
+            <label for="pgQuickUserSwitch" class="pg-sr-only">تغییر سریع کاربر</label>
+            <select id="pgQuickUserSwitch" onchange="window.payeshgarNav('/{mod}/?as_user=' + this.value)" class="pg-ws-select" title="تغییر سریع کاربر">
                 {options_html}
             </select>
         </div>
@@ -185,20 +186,39 @@ def build_payeshgar_topbar_html(
 
     return f"""
 <style>
+.pg-sr-only {{
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}}
 .pg-topbar {{
-    background: #0f172a;
+    background: #090d16;
     color: #f8fafc;
-    border-bottom: 1px solid #1e293b;
+    border-block-end: 1px solid rgba(148, 163, 184, 0.18);
     font-family: Vazirmatn, Tahoma, sans-serif;
     font-size: 13px;
+    line-height: 1.65;
     direction: rtl;
+    text-align: start;
     position: relative;
     z-index: 999;
 }}
+.pg-topbar :focus-visible,
+.pg-inspector-bar :focus-visible {{
+    outline: 2px solid #60a5fa;
+    outline-offset: 2px;
+}}
 .pg-topbar-inner {{
-    max-width: 1320px;
-    margin: 0 auto;
-    padding: 8px 20px;
+    max-inline-size: 1340px;
+    margin-inline: auto;
+    padding-block: 8px;
+    padding-inline: 20px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -210,14 +230,18 @@ def build_payeshgar_topbar_html(
     align-items: center;
     gap: 8px;
     font-weight: 800;
-    color: #fff;
+    color: #ffffff;
+    text-decoration: none;
+}}
+.pg-brand:hover {{
+    color: #ffffff;
     text-decoration: none;
 }}
 .pg-brand-badge {{
     background: linear-gradient(135deg, #3b82f6, #06b6d4);
-    width: 26px;
-    height: 26px;
-    border-radius: 7px;
+    inline-size: 28px;
+    block-size: 28px;
+    border-radius: 8px;
     display: inline-grid;
     place-items: center;
     font-size: 14px;
@@ -229,21 +253,28 @@ def build_payeshgar_topbar_html(
     flex-wrap: wrap;
 }}
 .pg-nav-link {{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     color: #cbd5e1;
     text-decoration: none;
-    padding: 5px 11px;
+    padding-block: 6px;
+    padding-inline: 12px;
     border-radius: 8px;
-    transition: background 0.15s, color 0.15s;
+    transition: background-color 160ms cubic-bezier(0.16, 1, 0.3, 1), color 160ms cubic-bezier(0.16, 1, 0.3, 1), transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
     font-weight: 600;
 }}
 .pg-nav-link:hover {{
     background: #1e293b;
-    color: #fff;
+    color: #ffffff;
     text-decoration: none;
+}}
+.pg-nav-link:active {{
+    transform: scale(0.98);
 }}
 .pg-nav-link.active {{
     background: #2563eb;
-    color: #fff;
+    color: #ffffff;
 }}
 .pg-user-area {{
     display: flex;
@@ -254,45 +285,58 @@ def build_payeshgar_topbar_html(
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: #1e293b;
-    border: 1px solid #334155;
-    padding: 3px 10px 3px 6px;
+    background: #172033;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    padding-block: 3px;
+    padding-inline-start: 4px;
+    padding-inline-end: 10px;
     border-radius: 999px;
     color: #e2e8f0;
     font-size: 12px;
+    font-weight: 600;
 }}
 .pg-avatar {{
-    width: 20px;
-    height: 20px;
+    inline-size: 22px;
+    block-size: 22px;
     border-radius: 50%;
-    background: #3b82f6;
-    color: #fff;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    color: #ffffff;
     display: inline-grid;
     place-items: center;
     font-size: 11px;
     font-weight: 700;
 }}
 .pg-logout {{
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     color: #fca5a5;
     text-decoration: none;
-    padding: 4px 10px;
+    padding-block: 5px;
+    padding-inline: 11px;
     border-radius: 8px;
-    background: rgba(239, 68, 68, 0.12);
-    border: 1px solid rgba(239, 68, 68, 0.28);
+    background: rgba(239, 68, 68, 0.14);
+    border: 1px solid rgba(239, 68, 68, 0.32);
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 700;
+    transition: background-color 160ms cubic-bezier(0.16, 1, 0.3, 1), transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
 }}
 .pg-logout:hover {{
-    background: rgba(239, 68, 68, 0.22);
+    background: rgba(239, 68, 68, 0.24);
     text-decoration: none;
+}}
+.pg-logout:active {{
+    transform: scale(0.98);
 }}
 .pg-inspector-bar {{
     background: linear-gradient(90deg, #312e81, #4c1d95);
     color: #f8fafc;
-    border-bottom: 1px solid #6d28d9;
+    border-block-end: 1px solid #6d28d9;
     font-family: Vazirmatn, Tahoma, sans-serif;
     font-size: 12.5px;
+    line-height: 1.65;
     direction: rtl;
+    text-align: start;
     position: relative;
     z-index: 998;
 }}
@@ -300,35 +344,46 @@ def build_payeshgar_topbar_html(
     background: rgba(245, 158, 11, 0.2);
     border: 1px solid rgba(245, 158, 11, 0.55);
     color: #fde68a;
-    padding: 2px 9px;
+    padding-block: 3px;
+    padding-inline: 10px;
     border-radius: 999px;
     font-weight: 800;
     font-size: 11.5px;
 }}
 .pg-ws-select {{
     background: #1e1b4b;
-    color: #fff;
+    color: #ffffff;
     border: 1px solid #6366f1;
-    border-radius: 7px;
-    padding: 3px 8px;
+    border-radius: 8px;
+    padding-block: 4px;
+    padding-inline: 10px;
     font-family: inherit;
     font-size: 12px;
+    font-variant-numeric: tabular-nums;
     cursor: pointer;
 }}
 .pg-ws-pill {{
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     color: #e0e7ff;
     text-decoration: none;
-    padding: 4px 10px;
-    border-radius: 7px;
+    padding-block: 5px;
+    padding-inline: 11px;
+    border-radius: 8px;
     background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.18);
     font-weight: 700;
     font-size: 12px;
+    transition: background-color 160ms cubic-bezier(0.16, 1, 0.3, 1), transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
 }}
 .pg-ws-pill:hover {{
     background: rgba(255, 255, 255, 0.18);
-    color: #fff;
+    color: #ffffff;
     text-decoration: none;
+}}
+.pg-ws-pill:active {{
+    transform: scale(0.98);
 }}
 .pg-ws-pill.active {{
     background: #f59e0b;
@@ -339,12 +394,22 @@ def build_payeshgar_topbar_html(
     background: rgba(15, 23, 42, 0.55);
     border-color: #94a3b8;
 }}
+@media (pointer: coarse), (max-width: 768px) {{
+    .pg-nav-link, .pg-logout, .pg-ws-pill, .pg-ws-select {{
+        min-block-size: 44px;
+    }}
+}}
+@media (prefers-reduced-motion: reduce) {{
+    .pg-nav-link, .pg-logout, .pg-ws-pill {{
+        transition-duration: 0.01ms !important;
+    }}
+}}
 </style>
-<div class="pg-topbar" role="navigation" aria-label="نوار ناوبری پایشگر">
+<nav class="pg-topbar" aria-label="نوار ناوبری پایشگر">
     <div class="pg-topbar-inner">
         <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
             <a href="/" onclick="window.payeshgarNav('/');return false;" class="pg-brand">
-                <span class="pg-brand-badge">📡</span>
+                <span class="pg-brand-badge" aria-hidden="true">📡</span>
                 <span>پایشگر</span>
             </a>
             <div class="pg-links">
@@ -352,11 +417,11 @@ def build_payeshgar_topbar_html(
             </div>
         </div>
         <div class="pg-user-area">
-            <span class="pg-user-chip"><span class="pg-avatar">{initial}</span> {esc_user}</span>
+            <span class="pg-user-chip"><span class="pg-avatar" aria-hidden="true">{initial}</span> <bdi>{esc_user}</bdi></span>
             <a href="/logout" onclick="sessionStorage.removeItem('payeshgar_at');" class="pg-logout">🚪 خروج</a>
         </div>
     </div>
-</div>
+</nav>
 {inspector_banner}
 """
 

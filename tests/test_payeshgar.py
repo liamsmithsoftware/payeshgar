@@ -357,3 +357,18 @@ def test_per_user_workspace_isolation_and_admin_only_workspaces_inspector(tmp_pa
         assert admin_client.get("/web/api/overview").json()["stats"]["total_sites"] == 0
         assert bob_client.get("/web/api/overview").json()["stats"]["total_sites"] == 1
 
+        # 5. Verify UI/UX, Logical RTL CSS, Accessibility & Footer requirements
+        css_text = admin_client.get("/static/style.css").text
+        assert "font-variant-numeric: tabular-nums" in css_text
+        assert "prefers-reduced-motion: reduce" in css_text
+        assert ":focus-visible" in css_text
+        for forbidden in ("margin-left", "margin-right", "padding-left", "padding-right", "text-align: left", "text-align: right"):
+            assert forbidden not in css_text
+
+        assert 'class="skip-link"' in admin_dash
+        assert '<a href="/web/" class="env-card">' in admin_dash
+        assert "<bdi>" in admin_dash
+        footer_match = re.search(r'<footer class="footer">\s*(.*?)\s*</footer>', admin_dash, re.S)
+        assert footer_match and footer_match.group(1) == "پایشگر"
+
+

@@ -46,6 +46,20 @@
     }
   };
 
+  window.showPayeshgarToast = function(message, variant) {
+    const stack = document.getElementById('toastStack');
+    if (!stack) return;
+    const item = document.createElement('div');
+    item.className = 'pg-toast ' + (variant || 'ok');
+    item.textContent = message;
+    stack.appendChild(item);
+    setTimeout(function() {
+      item.style.opacity = '0';
+      item.style.transition = 'opacity 180ms ease';
+      setTimeout(function() { item.remove(); }, 200);
+    }, 3200);
+  };
+
   document.addEventListener('click', function(e) {
     const a = e.target.closest('a[href]');
     if (!a) return;
@@ -54,7 +68,7 @@
       sessionStorage.removeItem('payeshgar_at');
       return;
     }
-    if (href.startsWith('/') && !href.startsWith('//') && !a.hasAttribute('target')) {
+    if (href.startsWith('/') && !href.startsWith('//') && !a.hasAttribute('target') && !a.hasAttribute('download')) {
       const tok = sessionStorage.getItem('payeshgar_at');
       if (tok && !href.includes('_at=')) {
         e.preventDefault();
@@ -66,15 +80,17 @@
 </script>
 </head>
 <body>
+<a href="#mainContent" class="skip-link">پرش به محتوای اصلی</a>
+
 <header class="header">
   <div class="header-inner">
-    <a href="/" class="logo" style="text-decoration:none;color:inherit">
-      <span class="logo-icon">📡</span>
-      <span>پایشگر<small>Payeshgar • سامانه یکپارچه خزش و آرشیو</small></span>
+    <a href="/" class="logo">
+      <span class="logo-icon" aria-hidden="true">📡</span>
+      <span>پایشگر<small><bdi>Payeshgar</bdi> • سامانه یکپارچه خزش و آرشیو</small></span>
     </a>
-    <nav class="nav">
+    <nav class="nav" aria-label="ناوبری اصلی پایشگر">
       {% if user %}
-        <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">🏠 داشبورد</a>
+        <a href="/" class="{% if request.url.path == '/' %}active{% endif %}" {% if request.url.path == '/' %}aria-current="page"{% endif %}>🏠 داشبورد</a>
         {% if 'web.view' in perms %}
         <a href="/web/">🌐 وب</a>
         {% endif %}
@@ -82,28 +98,33 @@
         <a href="/telegram/">✈️ تلگرام</a>
         {% endif %}
         {% if 'x.view' in perms %}
-        <a href="/x/">𝕏 ایکس</a>
+        <a href="/x/">𝕏 <bdi>X</bdi> / ایکس</a>
         {% endif %}
         {% if is_admin %}
-        <a href="/workspaces" class="{% if request.url.path == '/workspaces' %}active{% endif %}">👁️ محیط کاربران</a>
+        <a href="/workspaces" class="{% if request.url.path == '/workspaces' %}active{% endif %}" {% if request.url.path == '/workspaces' %}aria-current="page"{% endif %}>👁️ محیط کاربران</a>
         {% endif %}
         {% if 'admin.access' in perms %}
-        <a href="/admin" class="{% if request.url.path == '/admin' %}active{% endif %}">⚙️ مدیریت ACL</a>
+        <a href="/admin" class="{% if request.url.path == '/admin' %}active{% endif %}" {% if request.url.path == '/admin' %}aria-current="page"{% endif %}>⚙️ مدیریت <bdi>ACL</bdi></a>
         {% endif %}
-        <span class="user-chip"><span class="avatar">{{ user.username[0]|upper }}</span> {{ user.username }}</span>
-        <a href="/logout">🚪 خروج</a>
+        <span class="user-chip" title="کاربر واردشده">
+          <span class="avatar" aria-hidden="true">{{ user.username[0]|upper }}</span>
+          <bdi>{{ user.username }}</bdi>
+        </span>
+        <a href="/logout" class="nav-logout">🚪 خروج</a>
       {% endif %}
     </nav>
   </div>
 </header>
 
-<main class="container">
+<main id="mainContent" class="container">
   {% block content %}{% endblock %}
 </main>
 
 <footer class="footer">
   پایشگر
 </footer>
+
+<div id="toastStack" class="toast-stack" role="status" aria-live="polite"></div>
 {% block scripts %}{% endblock %}
 </body>
 </html>

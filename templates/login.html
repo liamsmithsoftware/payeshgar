@@ -7,47 +7,113 @@
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="login-wrap" style="min-height:100vh">
-  <div class="login-card">
-    <div class="logo-icon">📡</div>
-    <h2 style="text-align:center;font-size:24px;font-weight:900">پایشگر</h2>
-    <p style="text-align:center;color:var(--muted);font-size:13px;margin:6px 0 22px">سامانه یکپارچه خزش و آرشیو وب، تلگرام و ایکس — لطفاً وارد شوید</p>
+<main class="login-wrap">
+  <section class="login-card" aria-labelledby="loginHeading">
+    <div class="logo-icon" aria-hidden="true">📡</div>
+    <h1 id="loginHeading" style="text-align:center;font-size:24px;font-weight:900">پایشگر</h1>
+    <p style="text-align:center;color:var(--muted);font-size:13.5px;margin-block:8px 24px">
+      سامانه یکپارچه خزش و آرشیو وب، تلگرام و ایکس — لطفاً وارد شوید
+    </p>
 
     {% if error %}
-      <div class="alert alert-error">{{ error }}</div>
+      <div class="alert alert-error" role="alert">{{ error }}</div>
     {% endif %}
 
-    <form method="POST" action="/login">
+    <form method="POST" action="/login" id="loginForm">
       <input type="hidden" name="next" value="{{ next_val or '' }}">
       <input type="hidden" name="captcha_token" id="captchaToken" value="{{ captcha_token }}">
 
       <div class="field">
-        <label>نام کاربری</label>
-        <input type="text" name="username" value="{{ username_val or '' }}" required autofocus autocomplete="username" placeholder="نام کاربری را وارد کنید" dir="ltr" style="text-align:left">
+        <label for="loginUsername">نام کاربری</label>
+        <input
+          type="text"
+          id="loginUsername"
+          name="username"
+          value="{{ username_val or '' }}"
+          required
+          autofocus
+          autocomplete="username"
+          placeholder="username"
+          class="input-ltr"
+        >
       </div>
 
       <div class="field">
-        <label>رمز عبور</label>
-        <input type="password" name="password" required autocomplete="current-password" placeholder="••••••••" dir="ltr" style="text-align:left">
-      </div>
-
-      <div class="field">
-        <label>کد امنیتی (کپچا) — ۴ رقم تصویر را وارد کنید</label>
-        <div class="captcha-box" style="direction:ltr;justify-content:space-between">
-          <img id="captchaImg" src="{{ captcha_svg }}" alt="کد امنیتی" style="height:48px;width:150px;border-radius:8px;border:1px solid var(--border);flex-shrink:0;cursor:pointer" onclick="refreshCaptcha()" title="کلیک برای تغییر کد">
-          <input type="text" name="captcha" id="captchaInput" required inputmode="numeric" maxlength="6" autocomplete="off" placeholder="کد ۴ رقمی" dir="ltr" style="flex:1;text-align:center;font-size:18px;font-weight:800;letter-spacing:4px">
-          <button type="button" class="btn btn-ghost btn-sm" onclick="refreshCaptcha()" title="دریافت کد جدید">🔄</button>
+        <label for="loginPassword">رمز عبور</label>
+        <div class="pwd-field-wrap">
+          <input
+            type="password"
+            id="loginPassword"
+            name="password"
+            required
+            autocomplete="current-password"
+            placeholder="••••••••"
+            class="input-ltr"
+          >
+          <button
+            type="button"
+            class="pwd-toggle-btn"
+            onclick="togglePwdVisibility()"
+            aria-label="نمایش یا پنهان‌سازی رمز عبور"
+            title="نمایش / پنهان کردن رمز عبور"
+          >👁️</button>
         </div>
       </div>
 
-      <button type="submit" class="btn btn-primary btn-block" style="margin-top:6px">🔑 ورود به سامانه</button>
+      <div class="field">
+        <label for="captchaInput">کد امنیتی (کپچا) — ۴ رقم تصویر را وارد کنید</label>
+        <div class="captcha-box">
+          <img
+            id="captchaImg"
+            src="{{ captcha_svg }}"
+            alt="تصویر کد امنیتی چهار رقمی"
+            class="captcha-img"
+            onclick="refreshCaptcha()"
+            title="کلیک برای دریافت کد جدید"
+          >
+          <input
+            type="text"
+            name="captcha"
+            id="captchaInput"
+            required
+            inputmode="numeric"
+            maxlength="6"
+            autocomplete="off"
+            placeholder="····"
+            class="input-ltr captcha-input"
+          >
+          <button
+            type="button"
+            id="btnRefreshCaptcha"
+            class="btn btn-ghost btn-sm"
+            onclick="refreshCaptcha()"
+            aria-label="دریافت کد امنیتی جدید"
+            title="دریافت کد جدید"
+          >🔄</button>
+        </div>
+      </div>
+
+      <button type="submit" id="btnLoginSubmit" class="btn btn-primary btn-block" style="margin-block-start:8px">
+        <span>🔑 ورود به سامانه</span>
+      </button>
     </form>
-  </div>
-</div>
+  </section>
+</main>
 
 <script>
 sessionStorage.removeItem('payeshgar_at');
+
+function togglePwdVisibility() {
+  const pwd = document.getElementById('loginPassword');
+  if (!pwd) return;
+  pwd.type = pwd.type === 'password' ? 'text' : 'password';
+  pwd.focus();
+}
+
 async function refreshCaptcha() {
+  const btn = document.getElementById('btnRefreshCaptcha');
+  if (btn && btn.disabled) return;
+  if (btn) btn.disabled = true;
   try {
     const res = await fetch('/api/captcha', { cache: 'no-store' });
     if (!res.ok) return;
@@ -57,8 +123,20 @@ async function refreshCaptcha() {
     const inp = document.getElementById('captchaInput');
     inp.value = '';
     inp.focus();
-  } catch (e) {}
+  } catch (e) {
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
+
+document.getElementById('loginForm').addEventListener('submit', function() {
+  const btn = document.getElementById('btnLoginSubmit');
+  if (btn) {
+    btn.setAttribute('aria-busy', 'true');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" aria-hidden="true"></span><span>در حال بررسی اطلاعات...</span>';
+  }
+});
 </script>
 </body>
 </html>

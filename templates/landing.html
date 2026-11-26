@@ -1,34 +1,38 @@
 {% extends "base.html" %}
 {% block title %}پایشگر | داشبورد محیط‌های پایش{% endblock %}
 {% block content %}
-<div class="hero" style="padding-top:24px">
-  <h1>خوش آمدید، <span>{{ user.username }}</span></h1>
+<section class="hero" aria-labelledby="heroTitle">
+  <h1 id="heroTitle">خوش آمدید، <span><bdi>{{ user.username }}</bdi></span></h1>
   <p>بخش‌های زیر بر اساس نقش‌ها و دسترسی‌های حساب کاربری شما فعال شده‌اند. با انتخاب هر محیط، وارد سامانه کامل و مستقل همان بخش خواهید شد.</p>
   {% if roles %}
-  <div style="margin-top:12px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+  <div class="hero-roles" aria-label="نقش‌های اختصاص‌یافته">
     {% for r in roles %}
-      <span class="badge ok">🛡️ نقش: {{ r.name }}{% if r.description %} ({{ r.description }}){% endif %}</span>
+      <span class="badge ok">🛡️ نقش: <bdi>{{ r.name }}</bdi>{% if r.description %} ({{ r.description }}){% endif %}</span>
     {% endfor %}
   </div>
   {% endif %}
-</div>
+</section>
 
 {% set has_any_section = ('web.view' in perms) or ('telegram.view' in perms) or ('x.view' in perms) or ('admin.access' in perms) or is_admin %}
 
 {% if not has_any_section %}
-  <div class="panel" style="text-align:center;max-width:560px;margin:28px auto">
-    <div style="font-size:44px;margin-bottom:10px">🔒</div>
-    <h2>هیچ بخشی برای حساب شما فعال نیست</h2>
-    <p class="sub" style="margin-bottom:0">در حال حاضر هیچ دسترسی‌ای به حساب کاربری شما اختصاص نیافته است. لطفاً برای دریافت نقش و دسترسی با مدیر سیستم تماس بگیرید.</p>
+  <div class="panel empty-state" style="max-inline-size:560px;margin-inline:auto;margin-block-start:24px">
+    <div class="empty-icon" aria-hidden="true">🔒</div>
+    <h3>هیچ بخشی برای حساب شما فعال نیست</h3>
+    <p>در حال حاضر هیچ دسترسی‌ای به حساب کاربری شما اختصاص نیافته است. لطفاً برای دریافت نقش و دسترسی با مدیر سیستم تماس بگیرید.</p>
+    <a href="/logout" class="btn btn-ghost">🚪 خروج و ورود با حساب دیگر</a>
   </div>
 {% else %}
-  <div class="cards">
+  <section class="cards" aria-label="محیط‌های فعال پایشگر">
     {% if 'web.view' in perms %}
-    <div class="env-card" onclick="window.payeshgarNav('/web/')">
-      <div class="env-icon web">🌐</div>
-      <h3>محیط وب <small style="color:var(--muted);font-size:12px">Website Collector</small></h3>
-      <p>آرشیو هوشمند مطالب وب‌سایت‌ها (به‌غیر از ایکس و تلگرام)، فیدهای RSS/Atom، وردپرس، زمان‌بند خودکار، پروکسی اختصاصی هر سایت و خروجی Excel / SQLite.</p>
-      <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
+    <a href="/web/" class="env-card">
+      <div class="env-icon web" aria-hidden="true">🌐</div>
+      <h3>
+        <span>محیط وب</span>
+        <small><bdi>Website Collector</bdi></small>
+      </h3>
+      <p>آرشیو هوشمند مطالب وب‌سایت‌ها (به‌غیر از ایکس و تلگرام)، فیدهای <bdi>RSS/Atom</bdi>، وردپرس، زمان‌بند خودکار، پروکسی اختصاصی هر سایت و خروجی <bdi>Excel / SQLite</bdi>.</p>
+      <div class="env-perms">
         <span class="badge ok">👁 مشاهده</span>
         {% if 'web.sources' in perms %}<span class="badge ok">➕ منابع</span>{% endif %}
         {% if 'web.crawl' in perms %}<span class="badge ok">🚀 همگام‌سازی</span>{% endif %}
@@ -36,33 +40,45 @@
         {% if 'web.settings' in perms %}<span class="badge ok">🔧 تنظیمات</span>{% endif %}
         {% if 'web.delete' in perms %}<span class="badge ok">🗑 حذف/پاک‌سازی</span>{% endif %}
       </div>
-      <span class="go">ورود به سامانه کامل وب ←</span>
-    </div>
+      <span class="go">
+        <span>ورود به سامانه کامل وب</span>
+        <span class="dir-icon" aria-hidden="true">→</span>
+      </span>
+    </a>
     {% endif %}
 
     {% if 'telegram.view' in perms %}
-    <div class="env-card" onclick="window.payeshgarNav('/telegram/')">
-      <div class="env-icon telegram">✈️</div>
-      <h3>محیط تلگرام <small style="color:var(--muted);font-size:12px">Telegram Collector</small></h3>
-      <p>آرشیو هوشمند کانال‌های عمومی و خصوصی تلگرام (وب + Telethon)، زمان‌بند خودکار، جلوگیری از تکرار با شناسه پیام، پشتیبان‌گیری و خروجی Excel / SQLite.</p>
-      <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
+    <a href="/telegram/" class="env-card">
+      <div class="env-icon telegram" aria-hidden="true">✈️</div>
+      <h3>
+        <span>محیط تلگرام</span>
+        <small><bdi>Telegram Collector</bdi></small>
+      </h3>
+      <p>آرشیو هوشمند کانال‌های عمومی و خصوصی تلگرام (وب + <bdi>Telethon</bdi>)، زمان‌بند خودکار، جلوگیری از تکرار با شناسه پیام، پشتیبان‌گیری و خروجی <bdi>Excel / SQLite</bdi>.</p>
+      <div class="env-perms">
         <span class="badge ok">👁 مشاهده</span>
         {% if 'telegram.sources' in perms %}<span class="badge ok">➕ کانال‌ها</span>{% endif %}
         {% if 'telegram.crawl' in perms %}<span class="badge ok">🚀 همگام‌سازی</span>{% endif %}
         {% if 'telegram.export' in perms %}<span class="badge ok">📊 خروجی</span>{% endif %}
-        {% if 'telegram.settings' in perms %}<span class="badge ok">🔧 تنظیمات/Telethon</span>{% endif %}
+        {% if 'telegram.settings' in perms %}<span class="badge ok">🔧 تنظیمات/<bdi>Telethon</bdi></span>{% endif %}
         {% if 'telegram.delete' in perms %}<span class="badge ok">🗑 حذف/پاک‌سازی</span>{% endif %}
       </div>
-      <span class="go">ورود به سامانه کامل تلگرام ←</span>
-    </div>
+      <span class="go">
+        <span>ورود به سامانه کامل تلگرام</span>
+        <span class="dir-icon" aria-hidden="true">→</span>
+      </span>
+    </a>
     {% endif %}
 
     {% if 'x.view' in perms %}
-    <div class="env-card" onclick="window.payeshgarNav('/x/')">
-      <div class="env-icon x">𝕏</div>
-      <h3>محیط ایکس <small style="color:var(--muted);font-size:12px">X Collector</small></h3>
-      <p>آرشیو هوشمند حساب‌های شبکه ایکس (فقط لینک‌های x.com و twitter.com)، پایش زمان‌بندی‌شده، نشانگر ضدتکرار، پشتیبان‌گیری و خروجی Excel / SQLite.</p>
-      <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
+    <a href="/x/" class="env-card">
+      <div class="env-icon x" aria-hidden="true">𝕏</div>
+      <h3>
+        <span>محیط ایکس</span>
+        <small><bdi>X Collector</bdi></small>
+      </h3>
+      <p>آرشیو هوشمند حساب‌های شبکه ایکس (فقط لینک‌های <bdi>x.com</bdi> و <bdi>twitter.com</bdi>)، پایش زمان‌بندی‌شده، نشانگر ضدتکرار، پشتیبان‌گیری و خروجی <bdi>Excel / SQLite</bdi>.</p>
+      <div class="env-perms">
         <span class="badge ok">👁 مشاهده</span>
         {% if 'x.sources' in perms %}<span class="badge ok">➕ حساب‌ها</span>{% endif %}
         {% if 'x.crawl' in perms %}<span class="badge ok">🚀 همگام‌سازی</span>{% endif %}
@@ -70,36 +86,51 @@
         {% if 'x.settings' in perms %}<span class="badge ok">🔧 تنظیمات</span>{% endif %}
         {% if 'x.delete' in perms %}<span class="badge ok">🗑 حذف/پاک‌سازی</span>{% endif %}
       </div>
-      <span class="go">ورود به سامانه کامل ایکس ←</span>
-    </div>
+      <span class="go">
+        <span>ورود به سامانه کامل ایکس</span>
+        <span class="dir-icon" aria-hidden="true">→</span>
+      </span>
+    </a>
     {% endif %}
 
     {% if is_admin %}
-    <div class="env-card" onclick="window.payeshgarNav('/workspaces')">
-      <div class="env-icon" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">👁️</div>
-      <h3>محیط کاربری کاربران <small style="color:var(--muted);font-size:12px">Admin User Workspaces</small></h3>
-      <p>ویژه ادمین: انتخاب هر کاربر و مشاهده مجزای محیط وب، تلگرام و ایکس همان کاربر، دریافت خروجی‌های مستقیم (اکسل، SQLite، JSON) و ویرایش کامل اطلاعات محیط او.</p>
-      <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
+    <a href="/workspaces" class="env-card">
+      <div class="env-icon workspaces" aria-hidden="true">👁️</div>
+      <h3>
+        <span>محیط کاربری کاربران</span>
+        <small><bdi>Admin User Workspaces</bdi></small>
+      </h3>
+      <p>ویژه ادمین: انتخاب هر کاربر و مشاهده مجزای محیط وب، تلگرام و ایکس همان کاربر، دریافت خروجی‌های مستقیم (<bdi>Excel</bdi>، <bdi>SQLite</bdi>، <bdi>JSON</bdi>) و ویرایش کامل اطلاعات محیط او.</p>
+      <div class="env-perms">
         <span class="badge ok">👤 تفکیک کامل هر کاربر</span>
-        <span class="badge ok">📊 خروجی مستقیم اکسل / SQLite</span>
+        <span class="badge ok">📊 خروجی مستقیم اکسل / <bdi>SQLite</bdi></span>
         <span class="badge ok">✏️ ورود و ویرایش کامل</span>
       </div>
-      <span class="go">ورود به مدیریت محیط کاربران ←</span>
-    </div>
+      <span class="go">
+        <span>ورود به مدیریت محیط کاربران</span>
+        <span class="dir-icon" aria-hidden="true">→</span>
+      </span>
+    </a>
     {% endif %}
 
     {% if 'admin.access' in perms %}
-    <div class="env-card" onclick="window.payeshgarNav('/admin')">
-      <div class="env-icon" style="background:linear-gradient(135deg,#8b5cf6,#ec4899)">⚙️</div>
-      <h3>پنل مدیریت ACL <small style="color:var(--muted);font-size:12px">Users & Roles</small></h3>
+    <a href="/admin" class="env-card">
+      <div class="env-icon acl" aria-hidden="true">⚙️</div>
+      <h3>
+        <span>پنل مدیریت <bdi>ACL</bdi></span>
+        <small><bdi>Users & Roles</bdi></small>
+      </h3>
       <p>مدیریت کاربران، تعریف نقش‌های دلخواه و تخصیص ۲۷ سطح دسترسی جزئی (از مشاهده کلی تا اکشن‌های افزودن، همگام‌سازی، خروجی، تنظیمات و حذف).</p>
-      <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
+      <div class="env-perms">
         {% if 'users.view' in perms %}<span class="badge ok">👥 مدیریت کاربران</span>{% endif %}
         {% if 'roles.view' in perms %}<span class="badge ok">🛡️ مدیریت نقش‌ها</span>{% endif %}
       </div>
-      <span class="go">ورود به پنل مدیریت ←</span>
-    </div>
+      <span class="go">
+        <span>ورود به پنل مدیریت</span>
+        <span class="dir-icon" aria-hidden="true">→</span>
+      </span>
+    </a>
     {% endif %}
-  </div>
+  </section>
 {% endif %}
 {% endblock %}
